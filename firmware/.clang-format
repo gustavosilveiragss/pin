@@ -1,0 +1,16 @@
+BasedOnStyle: LLVM
+IndentWidth: 4
+BreakBeforeBraces: Attach
+ColumnLimit: 0
+PointerAlignment: Left
+ReferenceAlignment: Left
+QualifierAlignment: Left
+NamespaceIndentation: None
+SortIncludes: false
+FixNamespaceComments: false
+AccessModifierOffset: -4
+BreakConstructorInitializers: BeforeComma
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+Standard: Latest
