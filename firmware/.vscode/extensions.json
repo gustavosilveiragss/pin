@@ -1,0 +1,4 @@
+{
+  "recommendations": ["platformio.platformio-ide", "llvm-vs-code-extensions.vscode-clangd"],
+  "unwantedRecommendations": ["ms-vscode.cpptools", "ms-vscode.cpptools-extension-pack"]
+}

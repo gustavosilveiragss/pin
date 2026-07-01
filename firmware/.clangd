@@ -1,0 +1,16 @@
+CompileFlags:
+  CompilationDatabase: .
+  Add: [-Wno-unknown-attributes, -Wno-unknown-warning-option]
+  Remove:
+    - -fno-tree-switch-conversion
+    - -fstrict-volatile-bitfields
+    - -mlongcalls
+    - -mtext-section-literals
+    - -fno-shrink-wrap
+    - -free
+    - -fipa-pta
+    - -mabi=*
+    - -march=rv32*
+Diagnostics:
+  Suppress:
+    - attribute_section_invalid_for_target
