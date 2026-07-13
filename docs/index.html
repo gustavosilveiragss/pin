@@ -312,11 +312,14 @@
   }
   .tab:hover { border-color: var(--border-hover); color: var(--text); }
   .tab.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
-  .tab .badge {
+  .badge {
     min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
-    background: rgba(255,255,255,.22); color: inherit; font-size: 11px;
+    background: var(--surface2); color: var(--muted); font-size: 11px;
     display: inline-flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums;
+    vertical-align: middle;
   }
+  .badge.on { background: #16a34a; color: #fff; }
+  .tab .badge { background: rgba(255,255,255,.22); color: inherit; }
   .tab:not(.active) .badge { background: var(--surface2); color: var(--muted); }
 
   .tabpanel { display: none; flex-direction: column; gap: 16px; }
@@ -716,8 +719,8 @@
       <summary><span>como enviar pro pin</span><span class="exp-arrow">▾</span></summary>
       <ol class="uh-steps">
         <li>monte e baixe o <b>.pin</b> acima</li>
-        <li>clique no botão do pin (boot) → entra em modo wifi</li>
-        <li>conecte na rede do pin (padrão <b>broche</b>) → a página <b>abre sozinha</b> (senão <a href="http://192.168.4.1" target="_blank" rel="noopener">192.168.4.1</a>)</li>
+        <li><b>clique 2x</b> no botão do pin (boot) → abre o menu wifi (mostra o código do pin e o status do encontro)</li>
+        <li>conecte na rede do pin (o nome do wifi termina com o código do pin, ex <b>broche-A2B3</b>) → a página <b>abre sozinha</b> (senão <a href="http://192.168.4.1" target="_blank" rel="noopener">192.168.4.1</a>)</li>
         <li>envie o <b>.pin</b></li>
       </ol>
     </details>
@@ -729,6 +732,16 @@
         <input type="text" id="wifiName" class="name-in" value="broche" placeholder="broche" autocomplete="off" spellcheck="false" maxlength="32">
       </div>
       <p style="font-size:11px;color:var(--muted);text-align:left;padding:0 2px 8px">o novo nome vale a partir do próximo modo wifi, depois que este <b>.pin</b> for enviado.</p>
+    </details>
+
+    <details class="upload-help" id="encontroBox">
+      <summary><span>encontro (esp-now) <span class="badge" id="encontroBadge">off</span></span><span class="exp-arrow">▾</span></summary>
+      <p style="font-size:11.5px;color:var(--muted);text-align:left;padding:2px 2px 8px;line-height:1.55">quando o amigo com o código abaixo estiver <b>por perto</b>, o pin troca pro vídeo marcado com <b>★</b> na fila. leia o código do amigo no <b>pin dele</b> (aparece no menu wifi — <b>2 cliques</b> — e na página que abre) e digite aqui. <b>os dois</b> precisam se configurar um ao outro.</p>
+      <div class="ctrl-row" style="padding:2px 2px 4px">
+        <span class="lbl">código do amigo</span>
+        <input type="text" id="targetCode" class="name-in" value="" placeholder="ABCD" autocomplete="off" spellcheck="false" maxlength="4" style="text-transform:uppercase;letter-spacing:.18em">
+      </div>
+      <div id="encontroStatus" style="font-size:12px;text-align:left;padding:8px 2px 2px;line-height:1.8"></div>
     </details>
   </div>
 </div>
@@ -754,6 +767,7 @@ const I_ESP_VIDEO = 27;
 const I_ESP_IMAGE = 3;
 const I_OLED_OFF  = 0.5;
 const I_OLED_FULL = 18.5;
+const I_ESPNOW_DISCOVERY = 10; // avg mA added by the proximity radio while scanning for a friend
 
 class VideoProcessor {
   constructor(file) { this.file = file; }
@@ -1645,10 +1659,11 @@ function fmtHours(h) {
 function updateBattery() {
   if (batteryLit == null) return;
   const cap = BAT_MAH;
-  const mA = batteryCurrentMA(batteryLit, batteryEspMa);
+  const proxOn = encontroReady();
+  const mA = batteryCurrentMA(batteryLit, batteryEspMa) + (proxOn ? I_ESPNOW_DISCOVERY : 0);
   const runtimeH = cap * BAT_USABLE / mA;
   $('batStat').textContent =
-    `acesos ~${Math.round(batteryLit * 100)}% · ~${mA.toFixed(0)}mA · ${fmtHours(runtimeH)} contínuas`;
+    `acesos ~${Math.round(batteryLit * 100)}% · ~${mA.toFixed(0)}mA${proxOn ? ' (c/ encontro)' : ''} · ${fmtHours(runtimeH)} contínuas`;
   const hpd  = Math.max(0.5, Math.min(24, +$('batHours').value || 4));
   const days = runtimeH / hpd;
   const daysTxt = days >= 1 ? days.toFixed(1) + ' dias' : Math.round(days * 24) + ' h';
@@ -1741,7 +1756,7 @@ async function idbSet(k, v) { const d = await idbOpen(); return new Promise((res
 async function idbGet(k)    { const d = await idbOpen(); return new Promise((res, rej) => { const t = d.transaction('kv', 'readonly'); const rq = t.objectStore('kv').get(k); rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error); }); }
 
 function cloneItem(it) { return { ...it, blob: new Uint8Array(it.blob) }; }
-async function persistQueue() { try { await idbSet('queue', { playMode, name: ($('bundleName') ? $('bundleName').value : '') || '', wifi: ($('wifiName') ? $('wifiName').value : '') || '', items: queue.map(cloneItem) }); } catch (e) {} }
+async function persistQueue() { try { await idbSet('queue', { playMode, name: ($('bundleName') ? $('bundleName').value : '') || '', wifi: ($('wifiName') ? $('wifiName').value : '') || '', target: ($('targetCode') ? $('targetCode').value : '') || '', items: queue.map(cloneItem) }); } catch (e) {} }
 async function persistLists() { try { await idbSet('lists', savedLists.map(L => ({ ...L, items: L.items.map(cloneItem) }))); } catch (e) {} }
 function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
@@ -1784,8 +1799,9 @@ function renderQueue() {
       d.innerHTML =
         (it.thumb ? `<img class="qthumb" src="${it.thumb}" alt="">` : '<div class="qthumb"></div>') +
         `<div class="qmeta">` +
-          `<div class="qsub"><span class="tagpill">${tag}</span>${hold}<span>${itemSub(it)}</span></div></div>` +
+          `<div class="qsub"><span class="tagpill">${tag}</span>${it.inRange ? '<span class="tagpill">★ encontro</span>' : ''}${hold}<span>${itemSub(it)}</span></div></div>` +
         `<div class="qbtns">` +
+          `<button class="iconbtn${it.inRange ? ' active' : ''}" data-a="star" data-i="${i}" title="vídeo do encontro (in-range)">${it.inRange ? '★' : '☆'}</button>` +
           `<button class="iconbtn" data-a="up"  data-i="${i}" ${i === 0 ? 'disabled' : ''}>↑</button>` +
           `<button class="iconbtn" data-a="dn"  data-i="${i}" ${i === queue.length - 1 ? 'disabled' : ''}>↓</button>` +
           `<button class="iconbtn" data-a="del" data-i="${i}">✕</button>` +
@@ -1793,7 +1809,7 @@ function renderQueue() {
       L.appendChild(d);
     });
   }
-  updateBuild(); computeQueueLit(); persistQueue();
+  updateBuild(); computeQueueLit(); persistQueue(); updateEncontro();
 }
 $('queueList').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
@@ -1801,6 +1817,7 @@ $('queueList').addEventListener('click', e => {
   if (a === 'del') queue.splice(i, 1);
   else if (a === 'up' && i > 0) [queue[i - 1], queue[i]] = [queue[i], queue[i - 1]];
   else if (a === 'dn' && i < queue.length - 1) [queue[i + 1], queue[i]] = [queue[i], queue[i + 1]];
+  else if (a === 'star') { const on = !queue[i].inRange; queue.forEach(q => { q.inRange = false; }); queue[i].inRange = on; } // one in-range video at a time
   renderQueue();
 });
 $('queueList').addEventListener('input', e => {
@@ -1875,6 +1892,44 @@ function computeQueueLit() {
   updateBattery();
 }
 
+// Same 32-symbol alphabet the firmware uses (no 0/1/I/O). Uppercase, keep valid chars, 4 max.
+const PROX_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+function normalizeCode(s) {
+  return (s || '').toUpperCase().split('').filter(c => PROX_ALPHABET.includes(c)).join('').slice(0, 4);
+}
+
+// Single source of truth for "the emitted .pin will actually enable proximity". Mirrors the
+// firmware Bundle::proximityEnabled(): a valid 4-char code, a starred item, and >=1 normal
+// item left in the fila (so queue length >= 2). Used by the readout, the build, and the estimate.
+function encontroReady() {
+  return normalizeCode($('targetCode') ? $('targetCode').value : '').length === 4
+    && queue.some(q => q.inRange) && queue.length >= 2;
+}
+
+// Live readiness readout for the "encontro" (esp-now) section.
+function updateEncontro() {
+  const codeEl = $('targetCode'); if (!codeEl) return;
+  const raw = codeEl.value || '';
+  const code = normalizeCode(raw);
+  const codeOk = code.length === 4;
+  const starIdx = queue.findIndex(q => q.inRange);
+  const hasStar = starIdx >= 0;
+  const enoughFila = queue.length >= 2;
+  const ready = encontroReady();
+  const badge = $('encontroBadge');
+  if (badge) { badge.textContent = ready ? 'on' : 'off'; badge.classList.toggle('on', ready); }
+  const st = $('encontroStatus'); if (!st) return;
+  const dot = ok => ok ? '●' : '○';
+  const rows = [];
+  rows.push(`<div>${dot(codeOk)} código do amigo: <b>${code || '—'}</b>${raw && !codeOk ? ' <span style="color:var(--muted)">(4 símbolos, sem O/I/0/1)</span>' : ''}</div>`);
+  rows.push(`<div>${dot(hasStar)} vídeo do encontro: ${hasStar ? `<b>item ${starIdx + 1}</b> ★` : '<span style="color:var(--muted)">marque um com ★ na fila</span>'}</div>`);
+  if ((codeOk || hasStar) && !enoughFila) rows.push('<div>○ precisa de ≥2 itens (1 normal + o do encontro)</div>');
+  rows.push(ready
+    ? '<div style="color:#16a34a"><b>pronto</b> — o .pin sai no formato v2</div>'
+    : '<div style="color:var(--muted)">incompleto — o .pin sai normal (v1)</div>');
+  st.innerHTML = rows.join('');
+}
+
 function buildBundle() {
   if (!queue.length) return;
   const count = queue.length;
@@ -1885,18 +1940,31 @@ function buildBundle() {
     while (end > 0 && (ssid[end] & 0xC0) === 0x80) end--;
     ssid = ssid.slice(0, end);
   }
-  const sl = ssid.length, base = 9 + sl;
+  const sl = ssid.length;
+
+  // Proximity block (bundle v2): a 4-char friend code + exactly one starred "encontro" item.
+  // Off (no code or no star) => emit v1 byte-for-byte, which runs on any firmware.
+  const target = normalizeCode($('targetCode') ? $('targetCode').value : '');
+  const inRangeIdx = queue.findIndex(q => q.inRange);
+  const proximityOn = target.length === 4 && inRangeIdx >= 0 && count >= 2;
+  const tl = proximityOn ? target.length : 0;
+  const base = 9 + sl + (proximityOn ? 1 + tl : 0);
   const headerLen = base + count * 8;
   let payloadLen = 0; for (let i = 0; i < count; i++) payloadLen += queue[i].blob.length;
   const buf = new Uint8Array(headerLen + payloadLen);
   const dv = new DataView(buf.buffer);
   buf[0] = 0x50; buf[1] = 0x49; buf[2] = 0x4E; buf[3] = 0x31;
-  buf[4] = 1; buf[5] = playMode & 0x07; buf[6] = count; buf[7] = 0;
+  buf[4] = proximityOn ? 2 : 1; buf[5] = playMode & 0x07; buf[6] = count; buf[7] = 0;
   buf[8] = sl; buf.set(ssid, 9);
+  if (proximityOn) {
+    buf[9 + sl] = tl;
+    for (let i = 0; i < tl; i++) buf[9 + sl + 1 + i] = target.charCodeAt(i);
+  }
   for (let i = 0; i < count; i++) {
     const it = queue[i], e = base + i * 8;
     buf[e] = it.type & 0xFF;
     buf[e + 1] = it.type === 1 ? Math.max(1, Math.min(255, it.holdSec || 5)) : 0;
+    buf[e + 2] = (proximityOn && i === inRangeIdx) ? 1 : 0; // itemFlags bit0 = in-range-only
     dv.setUint32(e + 4, it.blob.length, true);
   }
   let off = headerLen;
@@ -1913,6 +1981,7 @@ function bundleFileName() {
 $('buildBtn').addEventListener('click', buildBundle);
 $('bundleName').addEventListener('input', persistQueue);
 $('wifiName').addEventListener('input', persistQueue);
+if ($('targetCode')) $('targetCode').addEventListener('input', () => { persistQueue(); computeQueueLit(); updateEncontro(); });
 
 async function compressFrames(packedFrames) {
   const raw = new Uint8Array(packedFrames.length * 1024);
@@ -2189,7 +2258,7 @@ $('addTxtBtn').addEventListener('click', async () => {
 (async function initBundle() {
   try {
     const q = await idbGet('queue');
-    if (q && Array.isArray(q.items)) { queue = q.items.map(it => ({ ...it, blob: new Uint8Array(it.blob) })); playMode = q.playMode === 2 ? 2 : 0; if (q.name) $('bundleName').value = q.name; if (q.wifi) $('wifiName').value = q.wifi; }
+    if (q && Array.isArray(q.items)) { queue = q.items.map(it => ({ ...it, blob: new Uint8Array(it.blob) })); playMode = q.playMode === 2 ? 2 : 0; if (q.name) $('bundleName').value = q.name; if (q.wifi) $('wifiName').value = q.wifi; if (q.target && $('targetCode')) $('targetCode').value = q.target; }
     const ls = await idbGet('lists');
     if (Array.isArray(ls)) savedLists = ls.map(L => ({ ...L, items: L.items.map(it => ({ ...it, blob: new Uint8Array(it.blob) })) }));
   } catch (e) {}
