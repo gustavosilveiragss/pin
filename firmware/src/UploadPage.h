@@ -27,6 +27,7 @@ button:disabled{opacity:.45}
 </style></head>
 <body><div class="wrap">
 <h1>esp32 pin: enviar bundle</h1>
+<p class="hint" id="mycode"></p>
 <label class="drop" id="drop" for="file">toque p/ escolher o arquivo .pin</label>
 <input id="file" type="file" accept=".pin">
 <div class="bar" id="bar"><i id="fill"></i></div>
@@ -35,6 +36,7 @@ button:disabled{opacity:.45}
 </div>
 <script>
 var $=function(i){return document.getElementById(i)};
+fetch('/codigo').then(function(r){return r.text()}).then(function(t){if(t)$('mycode').textContent='seu codigo: '+t+' — passe pro amigo';}).catch(function(){});
 var file=$('file'),drop=$('drop'),send=$('send');
 file.addEventListener('change',function(){drop.textContent=file.files[0]?file.files[0].name:'toque p/ escolher o arquivo .pin';send.disabled=!file.files[0];});
 ['dragover','dragenter'].forEach(function(e){drop.addEventListener(e,function(ev){ev.preventDefault();drop.classList.add('over')})});
