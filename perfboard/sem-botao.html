@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Perfboard do pin (com botao)</title>
+<title>Perfboard do pin (sem botao)</title>
 <style>
   :root{
     --bg:#0f1420; --panel:#161d2c; --ink:#e6e9ef; --muted:#93a0b5; --line:#2a3550;
@@ -30,8 +30,8 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Perfboard do pin (com botao)</h1>
-  <p class="sub">Placa cortada (10 colunas x 12 linhas, retrato), segura so o ESP + R1/R2 do divisor; USB-C do ESP pra esquerda. TP4056 parafusado na parede da case (USB-C atravessa a parede), chave e botao nas paredes laterais, bateria no fundo e OLED colado por fora, em cima da tampa (jumpers pela fenda). <b>FRENTE</b> = pecas + so os cabos do OLED (femea-femea, plugam direto nos pinos do ESP por cima). <b>VERSO</b> = todos os outros cabos, soldados atras.</p>
+  <h1>Perfboard do pin (sem botao)</h1>
+  <p class="sub">Placa cortada (10 colunas x 12 linhas, retrato), segura so o ESP + R1/R2 do divisor; USB-C do ESP pra esquerda. TP4056 parafusado na parede da case (USB-C atravessa a parede), chave na parede lateral, bateria no fundo e OLED colado por fora, em cima da tampa (jumpers pela fenda). <b>FRENTE</b> = pecas + so os cabos do OLED (femea-femea, plugam direto nos pinos do ESP por cima). <b>VERSO</b> = todos os outros cabos, soldados atras. Sem botao externo: usa o proprio boot da placa (dentro da case).</p>
 
   <div class="card">
     <div class="legend" id="legend"></div>
@@ -55,7 +55,7 @@
 <script>
 (function(){
   // ---- unica diferenca entre index.html (true) e sem-botao.html (false) ----
-  const WITH_BUTTON = true;
+  const WITH_BUTTON = false;
 
   const PITCH=26, PAD=20, COLS=10, ROWS=12;
   const BW=PAD*2+(COLS-1)*PITCH, BH=PAD*2+(ROWS-1)*PITCH;
