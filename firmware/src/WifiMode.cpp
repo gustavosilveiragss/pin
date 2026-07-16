@@ -2,37 +2,25 @@
 #include "Bundle.h"
 #include "UploadPage.h"
 
-#include <StatusScreen.h>
 #include <WifiPortal.h>
 
 namespace pin {
 
 namespace {
-constexpr uint32_t kRedrawMs = 500;
-constexpr uint32_t kSettleMs = 50; // let the radio settle before the last redraw
-
+constexpr uint32_t kUiFrameMs = 40;
+constexpr uint32_t kWifiStartMs = 1000; // wifi-iniciando animation before the radio blocks
+constexpr uint32_t kSettleMs = 50;      // let the radio settle before the last redraw
+constexpr const char* kConfigHost = "pin.marmota.dev.br";
+constexpr const char* kUploadHost = "192.168.4.1";
 } // namespace
 
-bool runWifiMode(mrm::Ssd1306Display& display, mrm::Battery& battery, mrm::Button& button, const char* ssid, const char* myCode, const char* proxStatus) {
-    const bool hasCode = myCode && myCode[0];
-    const String code = hasCode ? String(myCode) : String();
+bool runWifiMode(mrm::Ssd1306Display& display, mrm::Battery& battery, mrm::Button& button, const PortalInfo& info) {
+    const bool hasCode = info.myCode && info.myCode[0];
+    const String code = hasCode ? String(info.myCode) : String();
     // Append the code to the AP name so a phone reads it from the wifi list, but only when the
-    // "-XXXX" suffix still fits the 32-byte SSID cap. Otherwise broadcast the plain name (the
-    // code is still on the OLED and at GET /codigo).
-    const bool codeInSsid = hasCode && String(ssid).length() + 5 <= 32;
-    const String apSsid = codeInSsid ? String(ssid) + "-" + code : String(ssid);
-
-    // The 2-click menu shows the pin's own code, the link state snapshotted before the radio
-    // handed over to the SoftAP, and the upload hint.
-    const String codeLine = hasCode ? String("codigo ") + code : String();
-    const char* lines[4];
-    uint8_t lineCount = 0;
-    if (hasCode)
-        lines[lineCount++] = codeLine.c_str();
-    if (proxStatus && proxStatus[0])
-        lines[lineCount++] = proxStatus;
-    lines[lineCount++] = "envie 192.168.4.1";
-    lines[lineCount++] = "clique p/ sair";
+    // "-XXXX" suffix still fits the 32-byte SSID cap. Otherwise broadcast the plain name.
+    const bool codeInSsid = hasCode && String(info.ssid).length() + 5 <= 32;
+    const String apSsid = codeInSsid ? String(info.ssid) + "-" + code : String(info.ssid);
 
     mrm::WifiPortal portal({.ssid = apSsid.c_str(), .destPath = Bundle::kPath, .page = kUploadPage});
     portal.onValidate([](const char* tmp) { return Bundle::validate(tmp); });
@@ -41,32 +29,38 @@ bool runWifiMode(mrm::Ssd1306Display& display, mrm::Battery& battery, mrm::Butto
     });
 
     display.reinit();
-    display.clear();
-    display.line(24, "iniciando wifi...");
-    display.show();
+    for (uint32_t start = millis(), last = 0; millis() - start < kWifiStartMs;) {
+        const uint32_t now = millis();
+        if (now - last >= kUiFrameMs) {
+            sinal::wifiStarting(display.raw(), now - start);
+            display.show();
+            last = now;
+        }
+        delay(10);
+    }
     portal.begin();
     display.reinit(); // the radio powering up disturbs the OLED charge pump
 
     button.reset(); // drop the burst that opened wifi so a fresh click exits
-    mrm::StatusScreen screen(display);
-    uint8_t step = 0;
-    uint32_t lastDraw = 0;
-    bool first = true;
+    const uint32_t start = millis();
+    uint32_t last = 0;
     while (!portal.done()) {
         portal.handle();
-        if (first || millis() - lastDraw > kRedrawMs) {
+        const uint32_t now = millis();
+        if (now - last >= kUiFrameMs) {
             battery.update();
-            const mrm::StatusScreen::Config status{
-                .title = apSsid.c_str(),
-                .lines = lines,
-                .lineCount = lineCount,
+            const sinal::PortalModel model{
+                .apSsid = apSsid.c_str(),
+                .pin = hasCode ? code.c_str() : "----",
                 .battery = battery.percent(),
-                .showBattery = true,
-                .showWifi = true,
+                .friend_ = info.friend_,
+                .friendCode = info.friendCode,
+                .configHost = kConfigHost,
+                .uploadHost = kUploadHost,
             };
-            screen.draw(status, step++);
-            lastDraw = millis();
-            first = false;
+            sinal::portal(display.raw(), now - start, model);
+            display.show();
+            last = now;
         }
         if (button.clicks() > 0)
             break;
