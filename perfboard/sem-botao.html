@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perfboard do pin (sem botao)</title>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#161d2c; --ink:#e6e9ef; --muted:#93a0b5; --line:#2a3550;
+    --pcb:#1b3a2e; --pcbedge:#2f6a4f; --copper:#c98a3a; --hole:#0c1a14;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,sans-serif}
+  .wrap{max-width:1060px;margin:0 auto;padding:24px}
+  h1{font-size:22px;margin:0 0 4px}
+  p.sub{color:var(--muted);margin:0 0 20px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:20px}
+  svg{width:100%;height:auto;display:block}
+  h2{font-size:16px;margin:0 0 8px}
+  table{border-collapse:collapse;width:100%;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:6px 10px;text-align:left}
+  th{background:#1c2436;color:#a9bcd8}
+  small{color:var(--muted)}
+  .hint{color:var(--muted);font-size:12.5px;margin:10px 2px 0}
+  code{background:#212a3d;padding:1px 6px;border-radius:5px}
+  .legend{display:flex;flex-wrap:wrap;gap:12px;margin:2px 0 6px;font-size:12.5px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Perfboard do pin (sem botao)</h1>
+  <p class="sub">Placa cortada (10 colunas x 12 linhas, retrato), segura so o ESP + R1/R2 do divisor; USB-C do ESP pra esquerda. TP4056 parafusado na parede da case (USB-C atravessa a parede), chave na parede lateral, bateria no fundo e OLED colado por fora, em cima da tampa (jumpers pela fenda). <b>FRENTE</b> = pecas + so os cabos do OLED (femea-femea, plugam direto nos pinos do ESP por cima). <b>VERSO</b> = todos os outros cabos, soldados atras. Sem botao externo: usa o proprio boot da placa (dentro da case).</p>
+
+  <div class="card">
+    <div class="legend" id="legend"></div>
+    <svg id="svg" role="img" aria-label="Perfboard do pin, frente e verso"></svg>
+    <p class="hint">No VERSO as colunas ficam espelhadas (col 1 vai pra direita), porque e a placa virada. Cada fio tem a cor da rede e a etiqueta do sinal. Aneis tracejados = furos de fixacao da placa, alargados pra 2 mm.</p>
+  </div>
+
+  <div class="card">
+    <h2>Cabos do OLED (frente, femea-femea no topo)</h2>
+    <table id="otable"><thead><tr><th>OLED</th><th>Plugar no pino do ESP</th></tr></thead><tbody></tbody></table>
+    <p class="hint">Femea-femea direto no header do ESP, saindo pela fenda no topo da parede ate o OLED colado em cima da tampa. O OLED ja tem pull-up I2C, sem resistor no barramento.</p>
+  </div>
+
+  <div class="card">
+    <h2>Cabos soldados (verso da placa e modulos externos)</h2>
+    <table id="jtable"><thead><tr><th>Rede</th><th>De</th><th>Para</th></tr></thead><tbody></tbody></table>
+    <p class="hint">Furo escrito como <code>col C, lin L</code> pela regua da placa. GND e daisy-chain: passa de furo em furo. Bateria solda nos pads B+/B- do TP4056 (carrega ate desligada); chave em serie no OUT+. TP4056, chave e bateria ficam fora da placa, ligados por fio.</p>
+  </div>
+</div>
+
+<script>
+(function(){
+  // ---- unica diferenca entre index.html (true) e sem-botao.html (false) ----
+  const WITH_BUTTON = false;
+
+  const PITCH=26, PAD=20, COLS=10, ROWS=12;
+  const BW=PAD*2+(COLS-1)*PITCH, BH=PAD*2+(ROWS-1)*PITCH;
+  const TOP=54, FRONT_OX=150, BACK_OX=620, VBW=920, VBH=TOP+BH+96;
+
+  const hx=(ox,c,m)=> ox+PAD+((m?(COLS-c):(c-1))*PITCH);
+  const hy=(r)=> TOP+PAD+(r-1)*PITCH;
+
+  const espTop=['5V','GND','3V3','IO4','IO3','IO2','IO1','IO0'];
+  const espBot=['IO5','IO6','IO7','IO8','IO9','IO10','IO20','IO21'];
+  const usedTop={1:1,2:1,3:1,5:1};
+  const usedBot={1:1,2:1};
+  if(WITH_BUTTON) usedBot[5]=1;
+
+  const NETC={GND:'#9aa3b0',V5:'#e6a01e',V3:'#e6a01e',IO3:'#9aa3b0',SDA:'#4a9eea',SCL:'#4a9eea',OUTP:'#cf82b3',BAT:'#cf82b3',BTN:'#cf82b3'};
+  const NETDASH={GND:'',V5:'',V3:'7 4',IO3:'7 4',SDA:'',SCL:'7 4',OUTP:'',BAT:'7 4',BTN:'2 5'};
+  const NETLBL={GND:'GND',V5:'5V',V3:'3V3',IO3:'IO3',SDA:'SDA',SCL:'SCL',OUTP:'OUT+',BAT:'BAT',BTN:'IO9'};
+
+  // cabos soldados no verso (furo -> furo)
+  const versoWires=[
+    {net:'V5',  a:[1,1], b:[7,8]},
+    {net:'IO3', a:[5,1], b:[7,10]},
+    {net:'GND', a:[2,1], b:[7,12]}
+  ];
+  // modulos externos que entram por baixo (modulo -> furo)
+  const versoExt=[
+    {net:'V5',  mod:'Chave, pino lateral', b:[1,1]},
+    {net:'GND', mod:'TP4056 OUT-',         b:[2,1]}
+  ];
+  if(WITH_BUTTON){
+    versoExt.push({net:'BTN', mod:'Botao A', b:[5,6]});
+    versoExt.push({net:'GND', mod:'Botao B', b:[7,12]});
+  }
+  // ligacoes so entre modulos externos (fora da placa)
+  const extLinks=[
+    {net:'BAT',  from:'Bateria +',   to:'TP4056 B+'},
+    {net:'BAT',  from:'Bateria -',   to:'TP4056 B-'},
+    {net:'OUTP', from:'TP4056 OUT+', to:'Chave, pino central'}
+  ];
+  // cabos do OLED na frente (OLED -> pino do ESP)
+  const oledCables=[
+    {net:'V3', oled:'VCC', b:[3,1]},
+    {net:'GND',oled:'GND', b:[2,1]},
+    {net:'SDA',oled:'SDA', b:[1,6]},
+    {net:'SCL',oled:'SCL', b:[2,6]}
+  ];
+  // furos de fixacao da placa, alargados pra 2 mm (M2 auto-atarraxante)
+  const mountPts=[[1,8],[10,8],[1,12],[10,12]];
+
+  const NAME={
+    '1,1':'ESP 5V','2,1':'ESP GND','3,1':'ESP 3V3','5,1':'ESP IO3',
+    '1,6':'ESP IO5 (SDA)','2,6':'ESP IO6 (SCL)','5,6':'ESP IO9',
+    '7,8':'R1 topo (5V)','7,10':'no do divisor (IO3)','7,12':'R2 base (GND)'
+  };
+  const nm=(p)=>NAME[p[0]+','+p[1]]||('col '+p[0]+', lin '+p[1]);
+  const rc=(p)=>'col '+p[0]+', lin '+p[1];
+
+  // ---------- footprints (so ESP + R1 + R2 na placa cortada) ----------
+  function foot(ox,m,ghost){
+    const gc=ghost?' opacity="0.30"':'';
+    let s=`<g${gc}>`;
+    const el=Math.min(hx(ox,1,m),hx(ox,8,m))-13, er=Math.max(hx(ox,1,m),hx(ox,8,m))+13;
+    s+=`<rect class="esp" x="${el}" y="${hy(1)-13}" width="${er-el}" height="${hy(6)-hy(1)+26}" rx="8"/>`;
+    const ux = m ? er-3 : el-9;
+    s+=`<rect class="usb" x="${ux}" y="${hy(3)+4}" width="12" height="${hy(4)-hy(3)+18}" rx="3"/>`;
+    if(!ghost){
+      s+=`<text class="ptag" x="${(el+er)/2}" y="${hy(1)-18}" text-anchor="middle">ESP32-C3 SuperMini</text>`;
+      s+=`<text class="usbt" x="${ux+6}" y="${hy(3)+2}" text-anchor="middle">USB</text>`;
+    }
+    const rx=hx(ox,7,m);
+    s+=`<rect class="res" x="${rx-7}" y="${hy(8)+6}" width="14" height="${hy(10)-hy(8)-12}" rx="4"/>`;
+    s+=`<rect class="res" x="${rx-7}" y="${hy(10)+6}" width="14" height="${hy(12)-hy(10)-12}" rx="4"/>`;
+    if(!ghost){
+      s+=`<text class="ptag" x="${rx-13}" y="${(hy(8)+hy(10))/2+4}" text-anchor="end">R1</text>`;
+      s+=`<text class="ptag" x="${rx-13}" y="${(hy(10)+hy(12))/2+4}" text-anchor="end">R2</text>`;
+    }
+    s+=`</g>`;
+    return s;
+  }
+
+  function board(ox,m,title){
+    let s=`<text class="btitle" x="${ox+BW/2}" y="${TOP-30}" text-anchor="middle">${title}</text>`;
+    s+=`<rect class="pcb" x="${ox}" y="${TOP}" width="${BW}" height="${BH}" rx="10"/>`;
+    for(let c=1;c<=COLS;c++) s+=`<text class="rule" x="${hx(ox,c,m)}" y="${TOP-9}" text-anchor="middle">${c}</text>`;
+    for(let r=1;r<=ROWS;r++) if(r===1||r%2===0) s+=`<text class="rule" x="${ox-8}" y="${hy(r)+3}" text-anchor="end">${r}</text>`;
+    for(let r=1;r<=ROWS;r++) for(let c=1;c<=COLS;c++)
+      s+=`<circle class="hole" cx="${hx(ox,c,m)}" cy="${hy(r)}" r="4"/>`;
+    return s;
+  }
+
+  function mountHoles(ox,m){
+    let s='';
+    for(const p of mountPts) s+=`<circle class="mnt" cx="${hx(ox,p[0],m)}" cy="${hy(p[1])}" r="8"/>`;
+    return s;
+  }
+
+  function espPins(ox,m,ghost){
+    let s='';
+    for(let c=1;c<=8;c++){
+      const ut=usedTop[c], ub=usedBot[c];
+      s+=`<circle class="${ut?'padU':'padE'}" cx="${hx(ox,c,m)}" cy="${hy(1)}" r="4.6"/>`;
+      s+=`<circle class="${ub?'padU':'padE'}" cx="${hx(ox,c,m)}" cy="${hy(6)}" r="4.6"/>`;
+      if(!ghost){
+        s+=`<text class="${ut?'plU':'pl'}" x="${hx(ox,c,m)}" y="${hy(1)+15}" text-anchor="middle">${espTop[c-1]}</text>`;
+        s+=`<text class="${ub?'plU':'pl'}" x="${hx(ox,c,m)}" y="${hy(6)-8}" text-anchor="middle">${espBot[c-1]}</text>`;
+      }
+    }
+    return s;
+  }
+
+  function partPads(ox,m){
+    const pts=[[7,8],[7,10],[7,12]];
+    let s='';
+    for(const p of pts) s+=`<circle class="padU" cx="${hx(ox,p[0],m)}" cy="${hy(p[1])}" r="4.6"/>`;
+    return s;
+  }
+
+  // curva simples entre dois pontos
+  function curve(x1,y1,x2,y2){
+    const mx=(x1+x2)/2;
+    return `M${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
+  }
+  function pill(mx,my,t,col){
+    return `<rect class="pillbg" x="${mx-t.length*4-4}" y="${my-9}" width="${t.length*8+8}" height="16" rx="5"/>`
+         + `<text class="pill" x="${mx}" y="${my+3}" text-anchor="middle" fill="${col}">${t}</text>`;
+  }
+
+  // OLED na frente: bloco + cabos femea-femea nos pinos do ESP
+  function externalsFront(){
+    const ox=FRONT_OX;
+    let s=`<rect class="ext" x="8" y="${hy(2)-6}" width="126" height="70" rx="8"/>`;
+    s+=`<text class="exttag" x="71" y="${hy(2)+16}" text-anchor="middle">OLED SSD1306</text>`;
+    s+=`<text class="exts" x="71" y="${hy(2)+32}" text-anchor="middle">128x64 I2C</text>`;
+    s+=`<text class="exts" x="71" y="${hy(2)+50}" text-anchor="middle">fora da case, na tampa</text>`;
+    for(const cbl of oledCables){
+      const x=hx(ox,cbl.b[0],false), y=hy(cbl.b[1]), col=NETC[cbl.net];
+      s+=`<path d="${curve(134, hy(2)+18, x, y)}" fill="none" stroke="${col}" stroke-width="3" stroke-linecap="round" stroke-dasharray="${NETDASH[cbl.net]||''}"/>`;
+      s+=`<rect x="${x-4.5}" y="${y-4.5}" width="9" height="9" rx="2" fill="${col}"/>`;
+    }
+    return s;
+  }
+
+  // modulos externos no lado do verso: chave, TP4056, bateria e botao
+  function externalsVerso(){
+    const ox=BACK_OX;
+    let s='';
+    // chave SS-12D00 (parede da case), em serie no OUT+
+    const swx=452, swy=62;
+    s+=`<rect class="ext" x="${swx}" y="${swy}" width="140" height="54" rx="8"/>`;
+    s+=`<text class="exttag" x="${swx+70}" y="${swy+20}" text-anchor="middle">Chave SS-12D00</text>`;
+    s+=`<text class="exts" x="${swx+70}" y="${swy+38}" text-anchor="middle">liga/desliga, na parede</text>`;
+    s+=`<text class="pad" x="${swx+146}" y="${swy+22}" text-anchor="start">lateral</text>`;
+    // TP4056 (parafusado na parede, USB-C atravessa)
+    const tx=442, ty=150;
+    s+=`<rect class="ext" x="${tx}" y="${ty}" width="160" height="104" rx="8"/>`;
+    s+=`<rect class="usb" x="${tx-9}" y="${ty+32}" width="12" height="40" rx="3"/>`;
+    s+=`<text class="usbt" x="${tx-3}" y="${ty+52}" text-anchor="middle" transform="rotate(-90 ${tx-3} ${ty+52})">USB</text>`;
+    s+=`<circle class="mnt2" cx="${tx+22}" cy="${ty+16}" r="5"/>`;
+    s+=`<circle class="mnt2" cx="${tx+22}" cy="${ty+88}" r="5"/>`;
+    s+=`<text class="exttag" x="${tx+80}" y="${ty+26}" text-anchor="middle">TP4056</text>`;
+    s+=`<text class="exts" x="${tx+80}" y="${ty+44}" text-anchor="middle">carga USB-C</text>`;
+    s+=`<text class="exts" x="${tx+80}" y="${ty+62}" text-anchor="middle">parafusado na parede</text>`;
+    s+=`<text class="exts" x="${tx+80}" y="${ty+80}" text-anchor="middle">2 furos M2</text>`;
+    s+=`<text class="pad" x="${tx+154}" y="${ty+14}" text-anchor="end">OUT-</text>`;
+    // bateria
+    const bx=442, by=288;
+    s+=`<rect class="ext" x="${bx}" y="${by}" width="160" height="54" rx="8"/>`;
+    s+=`<text class="exttag" x="${bx+80}" y="${by+21}" text-anchor="middle">LiPo 3.7V</text>`;
+    s+=`<text class="exts" x="${bx+80}" y="${by+39}" text-anchor="middle">500mAh + PCM, no fundo</text>`;
+    // bateria -> TP4056 (B+ / B-)
+    for(const bp of [[492,'B+'],[552,'B-']]){
+      s+=`<path d="${curve(bp[0],by,bp[0],ty+104)}" fill="none" stroke="${NETC.BAT}" stroke-width="3" stroke-linecap="round" stroke-dasharray="${NETDASH.BAT}"/>`;
+      s+=`<circle cx="${bp[0]}" cy="${by}" r="4" fill="${NETC.BAT}"/>`;
+      s+=`<circle cx="${bp[0]}" cy="${ty+104}" r="4" fill="${NETC.BAT}"/>`;
+      s+=pill(bp[0],(by+ty+104)/2,bp[1],NETC.BAT);
+    }
+    // TP4056 OUT+ -> chave, pino central
+    s+=`<path d="${curve(500,ty,500,swy+54)}" fill="none" stroke="${NETC.OUTP}" stroke-width="3" stroke-linecap="round"/>`;
+    s+=`<circle cx="500" cy="${ty}" r="4" fill="${NETC.OUTP}"/>`;
+    s+=`<circle cx="500" cy="${swy+54}" r="4" fill="${NETC.OUTP}"/>`;
+    s+=pill(500,(ty+swy+54)/2,'OUT+',NETC.OUTP);
+    s+=`<text class="pad" x="526" y="${(ty+swy+54)/2+4}" text-anchor="start">central</text>`;
+    // botao
+    if(WITH_BUTTON){
+      const cbx=452, cby=376;
+      s+=`<rect class="ext" x="${cbx}" y="${cby}" width="140" height="54" rx="8"/>`;
+      s+=`<text class="exttag" x="${cbx+70}" y="${cby+20}" text-anchor="middle">Botao</text>`;
+      s+=`<text class="exts" x="${cbx+70}" y="${cby+38}" text-anchor="middle">momentario, na parede</text>`;
+    }
+    // modulos -> furos da placa (soldado no verso)
+    const anch={'Chave, pino lateral':[592,90],'TP4056 OUT-':[602,162],'Botao A':[592,390],'Botao B':[592,416]};
+    for(const cbl of versoExt){
+      const a=anch[cbl.mod], x=hx(ox,cbl.b[0],true), y=hy(cbl.b[1]), col=NETC[cbl.net];
+      s+=`<path d="${curve(a[0],a[1],x,y)}" fill="none" stroke="${col}" stroke-width="3" stroke-linecap="round" stroke-dasharray="${NETDASH[cbl.net]||''}"/>`;
+      s+=`<circle cx="${x}" cy="${y}" r="4.6" fill="${col}"/>`;
+      s+=pill((a[0]+x)/2,(a[1]+y)/2,NETLBL[cbl.net],col);
+    }
+    return s;
+  }
+
+  function wires(ox,m){
+    let s='';
+    for(const j of versoWires){
+      const x1=hx(ox,j.a[0],m), y1=hy(j.a[1]);
+      const x2=hx(ox,j.b[0],m), y2=hy(j.b[1]);
+      const col=NETC[j.net];
+      s+=`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${col}" stroke-width="3.4" stroke-linecap="round" stroke-dasharray="${NETDASH[j.net]||''}"/>`;
+      s+=`<circle cx="${x1}" cy="${y1}" r="4.6" fill="${col}"/>`;
+      s+=`<circle cx="${x2}" cy="${y2}" r="4.6" fill="${col}"/>`;
+      s+=pill((x1+x2)/2,(y1+y2)/2,NETLBL[j.net],col);
+    }
+    return s;
+  }
+
+  // ---------- montar SVG ----------
+  const svg=document.getElementById('svg');
+  svg.setAttribute('viewBox',`0 0 ${VBW} ${VBH}`);
+  let g='<style>'
+    +'.pcb{fill:var(--pcb);stroke:var(--pcbedge);stroke-width:2}'
+    +'.hole{fill:var(--hole);stroke:var(--copper);stroke-width:1.4}'
+    +'.padE{fill:#22303f;stroke:var(--copper);stroke-width:1.4}'
+    +'.padU{fill:var(--copper);stroke:#f2c98a;stroke-width:1}'
+    +'.esp{fill:#233056;stroke:#4a5f96;stroke-width:1.5}'
+    +'.usb{fill:#8894ad;stroke:#c9d2e6;stroke-width:1}'
+    +'.usbt{fill:#0f1420;font:600 7px system-ui}'
+    +'.res{fill:#caa46a;stroke:#7a5c00;stroke-width:1.2}'
+    +'.ext{fill:#182233;stroke:#3a4c6b;stroke-width:1.4}'
+    +'.exttag{fill:#dbe4f4;font:600 12px system-ui}'
+    +'.exts{fill:#9fb0cc;font:11px system-ui}'
+    +'.btitle{fill:#e9edf6;font:700 14px system-ui}'
+    +'.rule{fill:#6c7a92;font:10px system-ui}'
+    +'.ptag{fill:#dfe6f2;font:10px system-ui}'
+    +'.pad{fill:#cdd6e8;font:9px system-ui}'
+    +'.pl{fill:#8a97ad;font:9px system-ui}'
+    +'.plU{fill:#ffe08a;font:600 9px system-ui}'
+    +'.pill{font:700 10px system-ui}'
+    +'.pillbg{fill:#0f1420;opacity:.82}'
+    +'.mnt{fill:none;stroke:#7f93b5;stroke-width:1.6;stroke-dasharray:3 3}'
+    +'.mnt2{fill:#0c1420;stroke:#7f93b5;stroke-width:1.6}'
+    +'</style>';
+  // FRENTE
+  g+=board(FRONT_OX,false,'FRENTE: pecas + cabos do OLED');
+  g+=mountHoles(FRONT_OX,false);
+  g+=foot(FRONT_OX,false,false);
+  g+=espPins(FRONT_OX,false,false);
+  g+=partPads(FRONT_OX,false);
+  g+=externalsFront();
+  // VERSO
+  g+=board(BACK_OX,true,'VERSO: cabos por baixo (espelhado)');
+  g+=mountHoles(BACK_OX,true);
+  g+=foot(BACK_OX,true,true);
+  g+=espPins(BACK_OX,true,true);
+  g+=externalsVerso();
+  g+=wires(BACK_OX,true);
+  svg.innerHTML=g;
+
+  // legenda
+  const nets=['V5','GND','V3','IO3','SDA','SCL','OUTP','BAT','BTN'];
+  document.getElementById('legend').innerHTML =
+    nets.filter(n=> n!=='BTN'||WITH_BUTTON)
+        .map(n=>`<span><svg width="24" height="10" style="vertical-align:middle"><line x1="1" y1="5" x2="23" y2="5" stroke="${NETC[n]}" stroke-width="3" stroke-dasharray="${NETDASH[n]||''}"/></svg> ${NETLBL[n]}</span>`).join('');
+
+  // tabela OLED
+  document.querySelector('#otable tbody').innerHTML =
+    oledCables.map(c=>`<tr><td><span class="dot" style="background:${NETC[c.net]}"></span> ${c.oled}</td><td>${nm(c.b)} <small>(${rc(c.b)})</small></td></tr>`).join('');
+
+  // tabela: ligacoes entre modulos + modulos->furo + fios internos do verso
+  const rows=[];
+  for(const e of extLinks)   rows.push([e.net, e.from, e.to]);
+  for(const e of versoExt)   rows.push([e.net, e.mod, nm(e.b)+' <small>('+rc(e.b)+')</small>']);
+  for(const j of versoWires) rows.push([j.net, nm(j.a)+' <small>('+rc(j.a)+')</small>', nm(j.b)+' <small>('+rc(j.b)+')</small>']);
+  document.querySelector('#jtable tbody').innerHTML =
+    rows.map(r=>`<tr><td><span class="dot" style="background:${NETC[r[0]]}"></span> ${NETLBL[r[0]]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('');
+})();
+</script>
+</body>
+</html>
