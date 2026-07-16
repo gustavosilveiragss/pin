@@ -736,7 +736,7 @@
 
     <details class="upload-help" id="encontroBox">
       <summary><span>encontro (esp-now) <span class="badge" id="encontroBadge">off</span></span><span class="exp-arrow">▾</span></summary>
-      <p style="font-size:11.5px;color:var(--muted);text-align:left;padding:2px 2px 8px;line-height:1.55">quando o amigo com o código abaixo estiver <b>por perto</b>, o pin troca pro vídeo marcado com <b>★</b> na fila. leia o código do amigo no <b>pin dele</b> (aparece no menu wifi — <b>2 cliques</b> — e na página que abre) e digite aqui. <b>os dois</b> precisam se configurar um ao outro.</p>
+      <p style="font-size:11.5px;color:var(--muted);text-align:left;padding:2px 2px 8px;line-height:1.55">quando o amigo com o código abaixo estiver <b>por perto</b>, o pin troca pro vídeo marcado com <b>★</b> na fila. leia o código do amigo no <b>pin dele</b> (aparece no menu wifi, <b>2 cliques</b>, e na página que abre) e digite aqui. <b>os dois</b> precisam se configurar um ao outro.</p>
       <div class="ctrl-row" style="padding:2px 2px 4px">
         <span class="lbl">código do amigo</span>
         <input type="text" id="targetCode" class="name-in" value="" placeholder="ABCD" autocomplete="off" spellcheck="false" maxlength="4" style="text-transform:uppercase;letter-spacing:.18em">
@@ -1785,6 +1785,7 @@ function itemSub(it) {
 }
 function renderQueue() {
   const L = $('queueList');
+  const encCode = normalizeCode($('targetCode').value);
   if (!queue.length) {
     L.innerHTML = '<div class="empty-state">fila vazia, adicione vídeo, imagem ou qr</div>';
   } else {
@@ -1798,7 +1799,7 @@ function renderQueue() {
       d.innerHTML =
         (it.thumb ? `<img class="qthumb" src="${it.thumb}" alt="">` : '<div class="qthumb"></div>') +
         `<div class="qmeta">` +
-          `<div class="qsub"><span class="tagpill">${tag}</span>${it.inRange ? '<span class="tagpill">★ encontro</span>' : ''}${hold}<span>${itemSub(it)}</span></div></div>` +
+          `<div class="qsub"><span class="tagpill">${tag}</span>${it.inRange ? `<span class="tagpill">★ só no encontro${encCode.length === 4 ? ' com ' + encCode : ''}</span>` : ''}${hold}<span>${itemSub(it)}</span></div></div>` +
         `<div class="qbtns">` +
           `<button class="iconbtn${it.inRange ? ' active' : ''}" data-a="star" data-i="${i}" title="vídeo do encontro (in-range)">${it.inRange ? '★' : '☆'}</button>` +
           `<button class="iconbtn" data-a="up"  data-i="${i}" ${i === 0 ? 'disabled' : ''}>↑</button>` +
@@ -1917,12 +1918,12 @@ function updateEncontro() {
   badge.classList.toggle('on', ready);
   const dot = ok => ok ? '●' : '○';
   const rows = [];
-  rows.push(`<div>${dot(codeOk)} código do amigo: <b>${code || '—'}</b>${raw && !codeOk ? ' <span style="color:var(--muted)">(4 símbolos, sem O/I/0/1)</span>' : ''}</div>`);
+  rows.push(`<div>${dot(codeOk)} código do amigo: <b>${code || '...'}</b>${raw && !codeOk ? ' <span style="color:var(--muted)">(4 símbolos, sem O/I/0/1)</span>' : ''}</div>`);
   rows.push(`<div>${dot(hasStar)} vídeo do encontro: ${hasStar ? `<b>item ${starIdx + 1}</b> ★` : '<span style="color:var(--muted)">marque um com ★ na fila</span>'}</div>`);
   if ((codeOk || hasStar) && queue.length < 2) rows.push('<div>○ precisa de ≥2 itens (1 normal + o do encontro)</div>');
   rows.push(ready
-    ? '<div style="color:#16a34a"><b>pronto</b> — o .pin sai no formato v2</div>'
-    : '<div style="color:var(--muted)">incompleto — o .pin sai normal (v1)</div>');
+    ? '<div style="color:#16a34a"><b>pronto</b>, o .pin sai no formato v2</div>'
+    : '<div style="color:var(--muted)">incompleto, o .pin sai normal (v1)</div>');
   $('encontroStatus').innerHTML = rows.join('');
 }
 
@@ -1977,7 +1978,7 @@ function bundleFileName() {
 $('buildBtn').addEventListener('click', buildBundle);
 $('bundleName').addEventListener('input', persistQueue);
 $('wifiName').addEventListener('input', persistQueue);
-if ($('targetCode')) $('targetCode').addEventListener('input', () => { persistQueue(); computeQueueLit(); updateEncontro(); });
+if ($('targetCode')) $('targetCode').addEventListener('input', renderQueue);
 
 async function compressFrames(packedFrames) {
   const raw = new Uint8Array(packedFrames.length * 1024);
