@@ -11,15 +11,16 @@ namespace {
 
 constexpr uint8_t kButtonPin = 9; // boot button, also the external case button
 constexpr uint8_t kLedPin = 8;
-constexpr uint8_t kBatteryPin = 3;        // battery divider ADC pin
-constexpr uint32_t kDecodeClockMhz = 160; // full speed while decoding video
-constexpr uint32_t kIdleClockMhz = 80;    // holds and idle polling
-constexpr uint32_t kIdlePollMs = 50;      // light sleep window between polls
+constexpr uint8_t kBatteryPin = 3; // battery divider ADC node
+constexpr uint32_t kDecodeClockMhz = 160;
+constexpr uint32_t kIdleClockMhz = 80;
+constexpr uint32_t kIdlePollMs = 50;
+constexpr uint32_t kActivePollMs = 12; // dense poll while the radio blocks light sleep
 constexpr uint32_t kMsPerSec = 1000;
-constexpr uint32_t kReceivedMs = 700; // "recebido!" confirmation on screen
+constexpr uint32_t kReceivedMs = 700;
 
-constexpr uint8_t kClicksWifi = 2; // clicks that open the wifi menu (code + link status + upload)
-constexpr uint8_t kClicksDiag = 5; // clicks that open the battery diagnostic
+constexpr uint8_t kClicksWifi = 2; // wifi menu (code, status, upload)
+constexpr uint8_t kClicksDiag = 5; // battery diagnostic
 
 // 1.05 corrects the ~5% under-read from the 100k/100k divider source impedance
 // (measured 3.99V raw at a full cell). Retune per unit from the diag screen.
@@ -37,7 +38,6 @@ pin::Bundle bundle;
 pin::Player player(display);
 pin::Proximity proximity;
 
-bool g_fsOk = false; // LittleFS mounted -> the fila/upload paths are safe to use
 bool g_next = false;
 bool g_enterWifi = false;
 bool g_enterDiag = false;
@@ -56,9 +56,8 @@ void pollNav() {
         g_next = true;
 }
 
-// A proximity edge (friend arrived or left) must interrupt whatever is playing so loop()
-// can switch between the fila and the in-range video. Gated on active(): when the radio is
-// down present() is always false, so a stale g_friendShown can never force a permanent edge.
+// True when the on-screen state no longer matches presence, so playback must switch. Gated on
+// active() so a stale g_friendShown can't force a permanent edge when the radio is off.
 bool friendEdge() {
     return proximity.active() && proximity.present() != g_friendShown;
 }
@@ -69,12 +68,11 @@ bool shouldStop() {
     return g_next || g_enterWifi || g_enterDiag || friendEdge();
 }
 
-// Idle wait. When the proximity radio is up, a real light sleep would power the WiFi modem
-// down and stall the connectionless RX wake windows, so we stay in a plain delay (button is
-// still polled every tick). Non-proximity pins keep the original light-sleep idle exactly.
+// With the radio up, real light sleep would stop the WiFi modem and miss RX windows, so we
+// busy-delay instead. Non-proximity pins keep the light-sleep idle unchanged.
 void idleWait() {
     if (proximity.active())
-        delay(kIdlePollMs);
+        delay(kActivePollMs); // short so callers still catch fast clicks
     else
         power::lightSleep(kIdlePollMs, kButtonPin);
 }
@@ -83,41 +81,34 @@ bool gesturePending() {
     return g_next || g_enterWifi || g_enterDiag;
 }
 
-void holdUntilGesture() {
-    g_next = false; // do not carry a stale click into the wait, or it never sleeps
-    button.reset();
+// Low-power wait: clock down and pump input, radio and led until the predicate says stop.
+template <typename KeepWaiting>
+void holdWhile(KeepWaiting keepWaiting) {
     power::cpuClock(kIdleClockMhz);
-    while (!gesturePending() && !friendEdge()) {
+    while (keepWaiting()) {
         pollNav();
         proximity.tick();
         led.heartbeat();
         idleWait();
     }
+}
+
+void holdUntilGesture() {
+    g_next = false; // a carried-over click would keep it from ever sleeping
+    button.reset();
+    holdWhile([] { return !gesturePending() && !friendEdge(); });
 }
 
 void holdImage(uint8_t seconds) {
-    power::cpuClock(kIdleClockMhz);
-    const uint32_t ms = uint32_t(seconds) * kMsPerSec;
     const uint32_t start = millis();
-    while (millis() - start < ms && !gesturePending() && !friendEdge()) {
-        pollNav();
-        proximity.tick();
-        led.heartbeat();
-        idleWait();
-    }
+    const uint32_t ms = uint32_t(seconds) * kMsPerSec;
+    holdWhile([&] { return millis() - start < ms && !gesturePending() && !friendEdge(); });
 }
 
-// Hold the already-drawn frame at low power for as long as the paired friend is present.
-// Used when the in-range item is an IMAGE: draw it once, then idle here instead of
-// re-play()ing every pass (which would blank+redraw ~30x/s at full clock).
+// An in-range image is one frame, so loop() draws it once and then holds here rather than
+// replaying it every pass (which would blank and redraw at full clock).
 void holdWhilePresent() {
-    power::cpuClock(kIdleClockMhz);
-    while (proximity.present() && !gesturePending()) {
-        pollNav();
-        proximity.tick();
-        led.heartbeat();
-        idleWait();
-    }
+    holdWhile([] { return proximity.present() && !gesturePending(); });
 }
 
 // Hidden battery diagnostic (5 clicks). Shows the raw divider reading so the
@@ -154,11 +145,10 @@ void batteryDiag() {
     g_enterDiag = false;
 }
 
-// The in-range item is withheld from the normal fila only while the radio is actually up. If
-// proximity isn't running (feature off, an unusable target, or a radio init failure) the
-// flagged item just plays like any other item, so it is never silently unreachable.
+// The one handshake item is withheld from the fila only while the radio is up. Otherwise it
+// just plays like any other item, so it is never silently unreachable.
 bool filaSkip(int index) {
-    return proximity.active() && bundle.item(index).inRangeOnly();
+    return proximity.active() && index == bundle.inRangeIndex();
 }
 
 int firstFilaItem() {
@@ -181,7 +171,7 @@ void advanceSequential() {
     for (int k = 0; k < n; ++k) {
         g_current = (g_current + 1) % n;
         if (!filaSkip(g_current))
-            return; // skip the dedicated in-range video, it only plays on a handshake
+            return;
     }
 }
 
@@ -197,13 +187,35 @@ void advanceByMode() {
     }
 }
 
+// After playback, act on a pending event. Priority: menu, then friend arrival, then next.
+// Returns true when loop() should restart from the top.
+bool interrupted() {
+    if (g_enterWifi || g_enterDiag)
+        return true;
+    if (proximity.present())
+        return true;
+    if (g_next) {
+        g_next = false;
+        advanceSequential();
+        return true;
+    }
+    return false;
+}
+
+// Adopt /show.pin: load it, restart the radio for its target, rewind the fila.
+void reloadBundle() {
+    bundle.load();
+    if (proximity.configure(bundle))
+        display.reinit(); // the radio coming up disturbs the OLED charge pump
+    g_current = firstFilaItem();
+}
+
 void enterWifi() {
     g_enterWifi = false;
     led.on();
-    // Snapshot the link state before the radio hands over to the SoftAP, so the menu can
-    // report whether the paired pin was in range.
+    // Snapshot the link before the radio hands to the SoftAP, so the menu can report it.
     String proxStatus;
-    if (proximity.active()) // snapshot the live link before the radio hands over to the AP
+    if (proximity.active())
         proxStatus = String("amigo ") + bundle.target() + (proximity.present() ? " perto" : " longe");
     else if (bundle.proximityEnabled())
         proxStatus = "encontro: erro";
@@ -218,11 +230,7 @@ void enterWifi() {
         display.show();
         delay(kReceivedMs);
     }
-    bundle.load();
-    proximity.configure(bundle); // restart on channel 1 with the (possibly new) target
-    if (proximity.active())
-        display.reinit(); // radio back up after the AP teardown disturbs the charge pump
-    g_current = firstFilaItem();
+    reloadBundle();
 }
 
 } // namespace
@@ -236,20 +244,9 @@ void setup() {
     battery.begin();
     proximity.identify();
 
-    if (!fsMount())
-        return; // g_fsOk stays false -> loop() shows the mount error and holds
-    g_fsOk = true;
-    bundle.load();
-    proximity.configure(bundle);
-    if (proximity.active())
-        display.reinit(); // bringing the radio up disturbs the OLED charge pump (once)
-    g_current = firstFilaItem();
-}
-
-void loop() {
-    if (!g_fsOk) {
-        // A broken filesystem is not "no content": show the fault and hold, rather than
-        // falling through to the empty-fila screen that invites a wifi upload that can't stick.
+    if (!fsMount()) {
+        // A broken filesystem is fatal and not "no content", so halt here with the fault on
+        // screen instead of letting loop() invite a wifi upload that can never persist.
         display.clear();
         display.line(8, "LittleFS falhou");
         display.line(28, "reinicie o pin");
@@ -259,6 +256,10 @@ void loop() {
             power::lightSleep(kIdlePollMs, kButtonPin);
         }
     }
+    reloadBundle();
+}
+
+void loop() {
     if (g_enterDiag) {
         batteryDiag(); // returns on a click
         return;
@@ -278,8 +279,8 @@ void loop() {
         return;
     }
 
-    // A live mutual handshake takes over the screen with the dedicated in-range item. The
-    // fila position (g_current) is left untouched so it resumes on leave.
+    // A live handshake takes over with the in-range item. g_current stays put so the fila
+    // resumes where it was on leave.
     if (proximity.present() && bundle.proximityEnabled()) {
         g_friendShown = true;
         const pin::Item& item = bundle.item(bundle.inRangeIndex());
@@ -287,11 +288,10 @@ void loop() {
         button.reset();
         power::cpuClock(kDecodeClockMhz);
         player.play(bundle.path(), item.offset, item.length, shouldStop);
-        // A video just re-enters loop() and replays; an image is a single frame, so hold it
-        // in low power while the friend stays instead of re-drawing it every pass.
+        // A video replays on loop re-entry. An image is one frame, so hold it instead of redrawing.
         if (item.type == pin::ItemType::Image && !gesturePending() && proximity.present())
             holdWhilePresent();
-        return; // re-enter: replays/holds while present, or falls back to the fila once gone
+        return;
     }
     g_friendShown = false;
 
@@ -302,28 +302,12 @@ void loop() {
     power::cpuClock(kDecodeClockMhz);
     player.play(bundle.path(), item.offset, item.length, shouldStop);
 
-    if (g_enterWifi || g_enterDiag)
+    if (interrupted())
         return;
-    if (proximity.present())
-        return; // friend arrived: next loop shows the in-range video, keep g_current
-    if (g_next) {
-        g_next = false;
-        advanceSequential();
-        return;
-    }
-
     if (item.type == pin::ItemType::Image) {
         holdImage(item.holdSec);
-        if (g_enterWifi || g_enterDiag)
+        if (interrupted())
             return;
-        if (proximity.present())
-            return;
-        if (g_next) {
-            g_next = false;
-            advanceSequential();
-            return;
-        }
     }
-
     advanceByMode();
 }

@@ -729,7 +729,7 @@
       <summary><span>configurações adicionais</span><span class="exp-arrow">▾</span></summary>
       <div class="ctrl-row" style="padding:8px 2px 4px">
         <span class="lbl">nome do wifi</span>
-        <input type="text" id="wifiName" class="name-in" value="broche" placeholder="broche" autocomplete="off" spellcheck="false" maxlength="32">
+        <input type="text" id="wifiName" class="name-in" value="broche" placeholder="broche" autocomplete="off" spellcheck="false" maxlength="27">
       </div>
       <p style="font-size:11px;color:var(--muted);text-align:left;padding:0 2px 8px">o novo nome vale a partir do próximo modo wifi, depois que este <b>.pin</b> for enviado.</p>
     </details>
@@ -1703,7 +1703,7 @@ convertBtn.addEventListener('click', async () => {
       thumb,
     });
     progressWrap.classList.add('hidden');
-    flashTab('fila');
+    switchTab('fila');
   } catch (err) {
     showError(err.message || 'falha na conversão');
     progressWrap.classList.add('hidden');
@@ -1770,7 +1770,6 @@ function switchTab(name) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 $('tabs').addEventListener('click', e => { const b = e.target.closest('.tab'); if (b) switchTab(b.dataset.tab); });
-function flashTab(name) { switchTab(name); }
 
 function updateBuild() {
   const n = queue.length;
@@ -1862,7 +1861,7 @@ function renderSaved() {
 $('savedList').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   const i = +b.dataset.i, a = b.dataset.a, s = savedLists[i];
-  if (a === 'load')      { queue = s.items.map(cloneItem); playMode = s.playMode === 2 ? 2 : 0; $('bundleName').value = s.name || ''; setModeUI(); renderQueue(); flashTab('fila'); }
+  if (a === 'load')      { queue = s.items.map(cloneItem); playMode = s.playMode === 2 ? 2 : 0; $('bundleName').value = s.name || ''; setModeUI(); renderQueue(); switchTab('fila'); }
   else if (a === 'del')  { if (confirm('apagar a lista?')) { savedLists.splice(i, 1); persistLists(); renderSaved(); } }
   else if (a === 'ren')  { const nn = (prompt('novo nome:', s.name) || '').trim(); if (nn) { s.name = nn; persistLists(); renderSaved(); } }
   else if (a === 'up' && i > 0) { [savedLists[i - 1], savedLists[i]] = [savedLists[i], savedLists[i - 1]]; persistLists(); renderSaved(); }
@@ -1881,7 +1880,9 @@ $('modeSeg').addEventListener('click', e => {
 function computeQueueLit() {
   if (!queue.length) { batteryLit = null; $('batStat').textContent = '-'; $('batDays').textContent = '-'; return; }
   let w = 0, l = 0, esp = 0;
+  const skipInRange = encontroReady(); // the starred item is withheld from the fila by the firmware
   for (const it of queue) {
+    if (skipInRange && it.inRange) continue;
     const wi = it.type === 1 ? (it.holdSec || 5) * FPS : (it.frames || 1);
     w += wi;
     l += wi * (it.lit || 0);
@@ -1898,45 +1899,42 @@ function normalizeCode(s) {
   return (s || '').toUpperCase().split('').filter(c => PROX_ALPHABET.includes(c)).join('').slice(0, 4);
 }
 
-// Single source of truth for "the emitted .pin will actually enable proximity". Mirrors the
-// firmware Bundle::proximityEnabled(): a valid 4-char code, a starred item, and >=1 normal
-// item left in the fila (so queue length >= 2). Used by the readout, the build, and the estimate.
-function encontroReady() {
-  return normalizeCode($('targetCode') ? $('targetCode').value : '').length === 4
-    && queue.some(q => q.inRange) && queue.length >= 2;
-}
-
-// Live readiness readout for the "encontro" (esp-now) section.
-function updateEncontro() {
-  const codeEl = $('targetCode'); if (!codeEl) return;
-  const raw = codeEl.value || '';
-  const code = normalizeCode(raw);
-  const codeOk = code.length === 4;
+// Single source for whether the emitted .pin enables proximity. Mirrors Bundle::proximityEnabled().
+function proxState() {
+  const code = normalizeCode($('targetCode').value);
   const starIdx = queue.findIndex(q => q.inRange);
-  const hasStar = starIdx >= 0;
-  const enoughFila = queue.length >= 2;
-  const ready = encontroReady();
+  return { code, starIdx, ready: code.length === 4 && starIdx >= 0 && queue.length >= 2 };
+}
+function encontroReady() { return proxState().ready; }
+
+// Live readiness readout for the encontro section.
+function updateEncontro() {
+  const { code, starIdx, ready } = proxState();
+  const raw = $('targetCode').value;
+  const codeOk = code.length === 4, hasStar = starIdx >= 0;
   const badge = $('encontroBadge');
-  if (badge) { badge.textContent = ready ? 'on' : 'off'; badge.classList.toggle('on', ready); }
-  const st = $('encontroStatus'); if (!st) return;
+  badge.textContent = ready ? 'on' : 'off';
+  badge.classList.toggle('on', ready);
   const dot = ok => ok ? '●' : '○';
   const rows = [];
   rows.push(`<div>${dot(codeOk)} código do amigo: <b>${code || '—'}</b>${raw && !codeOk ? ' <span style="color:var(--muted)">(4 símbolos, sem O/I/0/1)</span>' : ''}</div>`);
   rows.push(`<div>${dot(hasStar)} vídeo do encontro: ${hasStar ? `<b>item ${starIdx + 1}</b> ★` : '<span style="color:var(--muted)">marque um com ★ na fila</span>'}</div>`);
-  if ((codeOk || hasStar) && !enoughFila) rows.push('<div>○ precisa de ≥2 itens (1 normal + o do encontro)</div>');
+  if ((codeOk || hasStar) && queue.length < 2) rows.push('<div>○ precisa de ≥2 itens (1 normal + o do encontro)</div>');
   rows.push(ready
     ? '<div style="color:#16a34a"><b>pronto</b> — o .pin sai no formato v2</div>'
     : '<div style="color:var(--muted)">incompleto — o .pin sai normal (v1)</div>');
-  st.innerHTML = rows.join('');
+  $('encontroStatus').innerHTML = rows.join('');
 }
 
 function buildBundle() {
   if (!queue.length) return;
   const count = queue.length;
 
+  // Clamp to 27 bytes so the firmware's "-XXXX" code suffix always fits the 32-byte SSID cap
+  // (keeps the "wifi name ends with the code" promise true for any name).
   let ssid = new TextEncoder().encode(($('wifiName').value || '').trim());
-  if (ssid.length > 32) {
-    let end = 32;
+  if (ssid.length > 27) {
+    let end = 27;
     while (end > 0 && (ssid[end] & 0xC0) === 0x80) end--;
     ssid = ssid.slice(0, end);
   }
@@ -1944,9 +1942,7 @@ function buildBundle() {
 
   // Proximity block (bundle v2): a 4-char friend code + exactly one starred "encontro" item.
   // Off (no code or no star) => emit v1 byte-for-byte, which runs on any firmware.
-  const target = normalizeCode($('targetCode') ? $('targetCode').value : '');
-  const inRangeIdx = queue.findIndex(q => q.inRange);
-  const proximityOn = target.length === 4 && inRangeIdx >= 0 && count >= 2;
+  const { code: target, starIdx: inRangeIdx, ready: proximityOn } = proxState();
   const tl = proximityOn ? target.length : 0;
   const base = 9 + sl + (proximityOn ? 1 + tl : 0);
   const headerLen = base + count * 8;
@@ -2056,7 +2052,7 @@ $('addImgBtn').addEventListener('click', async () => {
   try {
     const { compressed, lit } = await compressFrames([packBits(imgProcessed())]);
     await addItem({ type: 1, name: 'imagem', holdSec: Math.max(1, Math.min(255, +$('imgHold').value || 5)), frames: 1, lit, thumb: $('imgPrev').toDataURL(), blob: compressed });
-    flashTab('fila');
+    switchTab('fila');
   } catch (err) { showError(err.message || 'falha ao gerar imagem'); }
   finally { $('addImgBtn').disabled = false; }
 });
@@ -2093,7 +2089,7 @@ $('addQrBtn').addEventListener('click', async () => {
     const out = processFrame(rgba, { invert: false, threshold: 128, brightness: 0, contrast: 1 }, null);
     const { compressed, lit } = await compressFrames([packBits(out)]);
     await addItem({ type: 1, name: 'qr', holdSec: Math.max(1, Math.min(255, +$('qrHold').value || 8)), frames: 1, lit, thumb: $('qrPrev').toDataURL(), blob: compressed });
-    flashTab('fila');
+    switchTab('fila');
   } catch (err) { showError(err.message || 'falha ao gerar qr'); }
   finally { $('addQrBtn').disabled = false; }
 });
@@ -2250,7 +2246,7 @@ $('addTxtBtn').addEventListener('click', async () => {
     renderText();
     const { compressed, lit } = await compressFrames([packBits(txtLastOut)]);
     await addItem({ type: 1, name: 'texto', holdSec: Math.max(1, Math.min(255, +$('txtHold').value || 6)), frames: 1, lit, thumb: $('txtPrev').toDataURL(), blob: compressed });
-    flashTab('fila');
+    switchTab('fila');
   } catch (err) { showError(err.message || 'falha ao gerar texto'); }
   finally { $('addTxtBtn').disabled = false; }
 });

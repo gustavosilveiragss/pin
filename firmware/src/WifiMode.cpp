@@ -16,15 +16,14 @@ constexpr uint32_t kSettleMs = 50; // let the radio settle before the last redra
 bool runWifiMode(mrm::Ssd1306Display& display, mrm::Battery& battery, mrm::Button& button, const char* ssid, const char* myCode, const char* proxStatus) {
     const bool hasCode = myCode && myCode[0];
     const String code = hasCode ? String(myCode) : String();
-    // Append the code to the AP name so a phone can read it from the wifi list, but only if
-    // the "-XXXX" suffix still fits the 32-byte SSID cap; otherwise broadcast the plain name
-    // (the code is still on the OLED "codigo" line and at GET /codigo).
+    // Append the code to the AP name so a phone reads it from the wifi list, but only when the
+    // "-XXXX" suffix still fits the 32-byte SSID cap. Otherwise broadcast the plain name (the
+    // code is still on the OLED and at GET /codigo).
     const bool codeInSsid = hasCode && String(ssid).length() + 5 <= 32;
     const String apSsid = codeInSsid ? String(ssid) + "-" + code : String(ssid);
 
-    // The 2-click menu carries everything: this pin's own code (for the friend to type),
-    // the proximity link state captured just before the radio handed over to the SoftAP,
-    // and the upload hint.
+    // The 2-click menu shows the pin's own code, the link state snapshotted before the radio
+    // handed over to the SoftAP, and the upload hint.
     const String codeLine = hasCode ? String("codigo ") + code : String();
     const char* lines[4];
     uint8_t lineCount = 0;

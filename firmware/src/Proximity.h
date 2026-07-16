@@ -6,19 +6,16 @@ namespace pin {
 
 class Bundle;
 
-// ESP-NOW proximity handshake. Every configured pin broadcasts a tiny beacon carrying
-// its own short code and the friend's code; a pin shows its in-range video only on a
-// MUTUAL match (I hear a beacon whose sender is my target and whose target is me).
-//
-// The radio is brought up once and duty-cycled purely by ESP-NOW connectionless power
-// save (esp_now_set_wake_window + the connectionless wake interval), never by toggling
-// WiFi on/off — so the OLED charge pump is disturbed exactly once, at enable. TX beacons
-// are pumped from the app loop via tick(); RX lands in a WiFi-task callback that just
-// records the timestamp of the last mutual match.
+// ESP-NOW proximity handshake. Each configured pin broadcasts a tiny beacon carrying its own
+// code and the friend's code, and shows its in-range video only on a MUTUAL match (a beacon
+// whose sender is my target and whose target is me). The radio comes up once and is
+// duty-cycled by ESP-NOW connectionless power save, never by toggling WiFi on and off, so the
+// OLED charge pump is disturbed only at enable. TX beacons are pumped from tick(), RX lands in
+// a WiFi-task callback that records the timestamp of the last mutual match.
 class Proximity {
 public:
     void identify();                      // derive myCode from the chip id (call once, early)
-    void configure(const Bundle& bundle); // (re)start the radio iff bundle.proximityEnabled()
+    bool configure(const Bundle& bundle); // (re)start the radio, true if the RF was powered up
     void stop();                          // tear the radio down (frees it for the upload portal)
     void tick();                          // pump: beacon TX + arrive/leave state machine
 
@@ -27,7 +24,7 @@ public:
     const char* myCode() const { return myCode_; } // 4 chars + NUL, valid after identify()
 
 private:
-    void setDuty(uint16_t windowUs, uint16_t intervalMs);
+    void setDuty(uint16_t windowMs, uint16_t intervalMs);
     void sendBeacon();
 
 #if defined(ESP_IDF_VERSION_MAJOR) && ESP_IDF_VERSION_MAJOR >= 5
