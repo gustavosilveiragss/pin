@@ -11,17 +11,34 @@ namespace {
 constexpr uint32_t kRedrawMs = 500;
 constexpr uint32_t kSettleMs = 50; // let the radio settle before the last redraw
 
-const char* const kLines[] = {
-    "pagina abre sozinha",
-    "ou va em 192.168.4.1",
-    "pin.marmota.dev.br",
-    "clique para sair",
-};
 } // namespace
 
-bool runWifiMode(mrm::Ssd1306Display& display, mrm::Battery& battery, mrm::Button& button, const char* ssid) {
-    mrm::WifiPortal portal({.ssid = ssid, .destPath = Bundle::kPath, .page = kUploadPage});
+bool runWifiMode(mrm::Ssd1306Display& display, mrm::Battery& battery, mrm::Button& button, const char* ssid, const char* myCode, const char* proxStatus) {
+    const bool hasCode = myCode && myCode[0];
+    const String code = hasCode ? String(myCode) : String();
+    // Append the code to the AP name so a phone reads it from the wifi list, but only when the
+    // "-XXXX" suffix still fits the 32-byte SSID cap. Otherwise broadcast the plain name (the
+    // code is still on the OLED and at GET /codigo).
+    const bool codeInSsid = hasCode && String(ssid).length() + 5 <= 32;
+    const String apSsid = codeInSsid ? String(ssid) + "-" + code : String(ssid);
+
+    // The 2-click menu shows the pin's own code, the link state snapshotted before the radio
+    // handed over to the SoftAP, and the upload hint.
+    const String codeLine = hasCode ? String("codigo ") + code : String();
+    const char* lines[4];
+    uint8_t lineCount = 0;
+    if (hasCode)
+        lines[lineCount++] = codeLine.c_str();
+    if (proxStatus && proxStatus[0])
+        lines[lineCount++] = proxStatus;
+    lines[lineCount++] = "envie 192.168.4.1";
+    lines[lineCount++] = "clique p/ sair";
+
+    mrm::WifiPortal portal({.ssid = apSsid.c_str(), .destPath = Bundle::kPath, .page = kUploadPage});
     portal.onValidate([](const char* tmp) { return Bundle::validate(tmp); });
+    portal.onRoutes([code](WebServer& server) {
+        server.on("/codigo", HTTP_GET, [code, &server] { server.send(200, "text/plain", code); });
+    });
 
     display.reinit();
     display.clear();
@@ -40,9 +57,9 @@ bool runWifiMode(mrm::Ssd1306Display& display, mrm::Battery& battery, mrm::Butto
         if (first || millis() - lastDraw > kRedrawMs) {
             battery.update();
             const mrm::StatusScreen::Config status{
-                .title = ssid,
-                .lines = kLines,
-                .lineCount = sizeof(kLines) / sizeof(kLines[0]),
+                .title = apSsid.c_str(),
+                .lines = lines,
+                .lineCount = lineCount,
                 .battery = battery.percent(),
                 .showBattery = true,
                 .showWifi = true,

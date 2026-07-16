@@ -2,6 +2,7 @@
 
 #include "Bundle.h"
 #include "Player.h"
+#include "Proximity.h"
 #include "WifiMode.h"
 
 using namespace mrm;
@@ -10,15 +11,16 @@ namespace {
 
 constexpr uint8_t kButtonPin = 9; // boot button, also the external case button
 constexpr uint8_t kLedPin = 8;
-constexpr uint8_t kBatteryPin = 3;        // battery divider ADC pin
-constexpr uint32_t kDecodeClockMhz = 160; // full speed while decoding video
-constexpr uint32_t kIdleClockMhz = 80;    // holds and idle polling
-constexpr uint32_t kIdlePollMs = 50;      // light sleep window between polls
+constexpr uint8_t kBatteryPin = 3; // battery divider ADC node
+constexpr uint32_t kDecodeClockMhz = 160;
+constexpr uint32_t kIdleClockMhz = 80;
+constexpr uint32_t kIdlePollMs = 50;
+constexpr uint32_t kActivePollMs = 12; // dense poll while the radio blocks light sleep
 constexpr uint32_t kMsPerSec = 1000;
-constexpr uint32_t kReceivedMs = 700; // "recebido!" confirmation on screen
+constexpr uint32_t kReceivedMs = 700;
 
-constexpr uint8_t kClicksWifi = 2; // clicks that open the wifi portal
-constexpr uint8_t kClicksDiag = 5; // clicks that open the battery diagnostic
+constexpr uint8_t kClicksWifi = 2; // wifi menu (code, status, upload)
+constexpr uint8_t kClicksDiag = 5; // battery diagnostic
 
 // 1.05 corrects the ~5% under-read from the 100k/100k divider source impedance
 // (measured 3.99V raw at a full cell). Retune per unit from the diag screen.
@@ -34,10 +36,12 @@ Button button(kButtonPin);
 Led led({.pin = kLedPin});
 pin::Bundle bundle;
 pin::Player player(display);
+pin::Proximity proximity;
 
 bool g_next = false;
 bool g_enterWifi = false;
 bool g_enterDiag = false;
+bool g_friendShown = false; // true while the in-range handshake video is on screen
 int g_current = 0;
 
 void pollNav() {
@@ -52,31 +56,59 @@ void pollNav() {
         g_next = true;
 }
 
+// True when the on-screen state no longer matches presence, so playback must switch. Gated on
+// active() so a stale g_friendShown can't force a permanent edge when the radio is off.
+bool friendEdge() {
+    return proximity.active() && proximity.present() != g_friendShown;
+}
+
 bool shouldStop() {
     pollNav();
+    proximity.tick();
+    return g_next || g_enterWifi || g_enterDiag || friendEdge();
+}
+
+// With the radio up, real light sleep would stop the WiFi modem and miss RX windows, so we
+// busy-delay instead. Non-proximity pins keep the light-sleep idle unchanged.
+void idleWait() {
+    if (proximity.active())
+        delay(kActivePollMs); // short so callers still catch fast clicks
+    else
+        power::lightSleep(kIdlePollMs, kButtonPin);
+}
+
+bool gesturePending() {
     return g_next || g_enterWifi || g_enterDiag;
 }
 
-void holdUntilGesture() {
-    g_next = false; // do not carry a stale click into the wait, or it never sleeps
-    button.reset();
+// Low-power wait: clock down and pump input, radio and led until the predicate says stop.
+template <typename KeepWaiting>
+void holdWhile(KeepWaiting keepWaiting) {
     power::cpuClock(kIdleClockMhz);
-    while (!g_next && !g_enterWifi && !g_enterDiag) {
+    while (keepWaiting()) {
         pollNav();
+        proximity.tick();
         led.heartbeat();
-        power::lightSleep(kIdlePollMs, kButtonPin);
+        idleWait();
     }
 }
 
+void holdUntilGesture() {
+    g_next = false; // a carried-over click would keep it from ever sleeping
+    button.reset();
+    holdWhile([] { return !gesturePending() && !friendEdge(); });
+}
+
 void holdImage(uint8_t seconds) {
-    power::cpuClock(kIdleClockMhz);
-    const uint32_t ms = uint32_t(seconds) * kMsPerSec;
     const uint32_t start = millis();
-    while (millis() - start < ms && !g_next && !g_enterWifi && !g_enterDiag) {
-        pollNav();
-        led.heartbeat();
-        power::lightSleep(kIdlePollMs, kButtonPin);
-    }
+    const uint32_t ms = uint32_t(seconds) * kMsPerSec;
+    holdWhile([&] { return millis() - start < ms && !gesturePending() && !friendEdge(); });
+}
+
+// An in-range image is one frame, so loop() draws it once and then holds here rather than
+// replaying it every pass (which would blank and redraw at full clock).
+void holdWhilePresent() {
+    holdWhile([] { return proximity.present() && !gesturePending(); });
 }
 
 // Hidden battery diagnostic (5 clicks). Shows the raw divider reading so the
@@ -106,32 +138,91 @@ void batteryDiag() {
             display.show();
             lastDraw = millis();
         }
+        proximity.tick();
         led.heartbeat();
-        power::lightSleep(kIdlePollMs, kButtonPin);
+        idleWait();
     }
     g_enterDiag = false;
 }
 
+// The one handshake item is withheld from the fila only while the radio is up. Otherwise it
+// just plays like any other item, so it is never silently unreachable.
+bool filaSkip(int index) {
+    return proximity.active() && index == bundle.inRangeIndex();
+}
+
+int firstFilaItem() {
+    for (int i = 0; i < bundle.count(); ++i)
+        if (!filaSkip(i))
+            return i;
+    return 0;
+}
+
+int filaPlayable() {
+    int n = 0;
+    for (int i = 0; i < bundle.count(); ++i)
+        if (!filaSkip(i))
+            ++n;
+    return n;
+}
+
 void advanceSequential() {
-    g_current = (g_current + 1) % bundle.count();
+    const int n = bundle.count();
+    for (int k = 0; k < n; ++k) {
+        g_current = (g_current + 1) % n;
+        if (!filaSkip(g_current))
+            return;
+    }
 }
 
 void advanceByMode() {
-    if (bundle.mode() == pin::PlayMode::Shuffle && bundle.count() > 1) {
+    if (bundle.mode() == pin::PlayMode::Shuffle && filaPlayable() > 1) {
         int next;
         do {
             next = random(bundle.count());
-        } while (next == g_current);
+        } while (next == g_current || filaSkip(next));
         g_current = next;
     } else {
         advanceSequential(); // loop
     }
 }
 
+// After playback, act on a pending event. Priority: menu, then friend arrival, then next.
+// Returns true when loop() should restart from the top.
+bool interrupted() {
+    if (g_enterWifi || g_enterDiag)
+        return true;
+    if (proximity.present())
+        return true;
+    if (g_next) {
+        g_next = false;
+        advanceSequential();
+        return true;
+    }
+    return false;
+}
+
+// Adopt /show.pin: load it, restart the radio for its target, rewind the fila.
+void reloadBundle() {
+    bundle.load();
+    if (proximity.configure(bundle))
+        display.reinit(); // the radio coming up disturbs the OLED charge pump
+    g_current = firstFilaItem();
+}
+
 void enterWifi() {
     g_enterWifi = false;
     led.on();
-    const bool received = pin::runWifiMode(display, battery, button, bundle.ssid().c_str());
+    // Snapshot the link before the radio hands to the SoftAP, so the menu can report it.
+    String proxStatus;
+    if (proximity.active())
+        proxStatus = String("amigo ") + bundle.target() + (proximity.present() ? " perto" : " longe");
+    else if (bundle.proximityEnabled())
+        proxStatus = "encontro: erro";
+    else
+        proxStatus = "sem encontro";
+    proximity.stop(); // the SoftAP needs the radio in AP mode
+    const bool received = pin::runWifiMode(display, battery, button, bundle.ssid().c_str(), proximity.myCode(), proxStatus.c_str());
     led.off();
     if (received) {
         display.clear();
@@ -139,8 +230,7 @@ void enterWifi() {
         display.show();
         delay(kReceivedMs);
     }
-    bundle.load();
-    g_current = 0;
+    reloadBundle();
 }
 
 } // namespace
@@ -152,14 +242,21 @@ void setup() {
     randomSeed(micros());
     display.begin();
     battery.begin();
+    proximity.identify();
 
     if (!fsMount()) {
+        // A broken filesystem is fatal and not "no content", so halt here with the fault on
+        // screen instead of letting loop() invite a wifi upload that can never persist.
         display.clear();
-        display.line(0, "LittleFS falhou");
+        display.line(8, "LittleFS falhou");
+        display.line(28, "reinicie o pin");
         display.show();
-        return;
+        for (;;) {
+            led.heartbeat();
+            power::lightSleep(kIdlePollMs, kButtonPin);
+        }
     }
-    bundle.load();
+    reloadBundle();
 }
 
 void loop() {
@@ -173,6 +270,7 @@ void loop() {
     }
 
     if (bundle.empty()) {
+        g_friendShown = false;
         display.clear();
         display.line(4, "sem conteudo");
         display.line(20, "clique 2x p/ wifi");
@@ -181,6 +279,22 @@ void loop() {
         return;
     }
 
+    // A live handshake takes over with the in-range item. g_current stays put so the fila
+    // resumes where it was on leave.
+    if (proximity.present() && bundle.proximityEnabled()) {
+        g_friendShown = true;
+        const pin::Item& item = bundle.item(bundle.inRangeIndex());
+        g_next = false;
+        button.reset();
+        power::cpuClock(kDecodeClockMhz);
+        player.play(bundle.path(), item.offset, item.length, shouldStop);
+        // A video replays on loop re-entry. An image is one frame, so hold it instead of redrawing.
+        if (item.type == pin::ItemType::Image && !gesturePending() && proximity.present())
+            holdWhilePresent();
+        return;
+    }
+    g_friendShown = false;
+
     const pin::Item& item = bundle.item(g_current);
     g_next = false;
     button.reset(); // a completed click from the previous item must not advance this one
@@ -188,24 +302,12 @@ void loop() {
     power::cpuClock(kDecodeClockMhz);
     player.play(bundle.path(), item.offset, item.length, shouldStop);
 
-    if (g_enterWifi || g_enterDiag)
+    if (interrupted())
         return;
-    if (g_next) {
-        g_next = false;
-        advanceSequential();
-        return;
-    }
-
     if (item.type == pin::ItemType::Image) {
         holdImage(item.holdSec);
-        if (g_enterWifi || g_enterDiag)
+        if (interrupted())
             return;
-        if (g_next) {
-            g_next = false;
-            advanceSequential();
-            return;
-        }
     }
-
     advanceByMode();
 }
