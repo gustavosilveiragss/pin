@@ -1,4 +1,5 @@
 #include "Bundle.h"
+#include "Code.h"
 
 #include <LittleFS.h>
 #include <cstring>
@@ -16,31 +17,17 @@ constexpr size_t kTargetLenSize = 1;
 constexpr size_t kIndexEntrySize = 8; // type(1) holdSec(1) itemFlags(1) reserved(1) length(4)
 constexpr uint8_t kMaxSsidLen = 32;
 constexpr uint8_t kModeMask = 0x03;
-constexpr uint8_t kFlagInRangeOnly = 0x01;
 
 constexpr size_t kHeaderVersion = 4;
 constexpr size_t kHeaderMode = 5;
 constexpr size_t kHeaderCount = 6;
 constexpr size_t kEntryType = 0;
 constexpr size_t kEntryHold = 1;
-constexpr size_t kEntryFlags = 2; // repurposed from reserved; bit0 = in-range-only
+constexpr size_t kEntryFlags = 2; // was reserved, bit0 = in-range-only
 constexpr size_t kEntryLength = 4;
 
 uint32_t readU32(const uint8_t* p) {
     return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
-}
-
-// Must match the alphabet in Proximity.cpp (32 symbols, no 0/1/I/O). A target that isn't a
-// clean 4-char code can't be decoded to a UID, so proximity must read as OFF for it (and the
-// starred item then plays normally in the fila instead of becoming unreachable).
-constexpr char kCodeAlphabet[] = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
-bool codeValid(const String& s) {
-    if (s.length() != 4)
-        return false;
-    for (size_t i = 0; i < 4; ++i)
-        if (s[i] == '\0' || !strchr(kCodeAlphabet, s[i]))
-            return false;
-    return true;
 }
 
 } // namespace
@@ -102,8 +89,8 @@ bool Bundle::load(const char* path) {
         }
         target[targetLen] = 0;
         target_ = target;
-        if (!codeValid(target_))
-            target_ = ""; // undecodable target -> proximity off, starred item stays in the fila
+        if (!code::valid(target_))
+            target_ = ""; // unusable code, proximity stays off and the item plays in the fila
         targetBlock = kTargetLenSize + targetLen;
     }
 
@@ -129,7 +116,7 @@ bool Bundle::load(const char* path) {
         items_[i].length = readU32(&entry[kEntryLength]);
         items_[i].offset = offset;
         offset += items_[i].length;
-        if (items_[i].flags & kFlagInRangeOnly) {
+        if (items_[i].inRangeOnly()) {
             if (firstInRange < 0)
                 firstInRange = i;
         } else {
