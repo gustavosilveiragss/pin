@@ -1,11 +1,15 @@
 #include <marmota.h>
 
+#include <cstring>
+
 #include "Bundle.h"
 #include "Player.h"
 #include "Proximity.h"
+#include "Sinal.h"
 #include "WifiMode.h"
 
 using namespace mrm;
+namespace sinal = pin::sinal;
 
 namespace {
 
@@ -17,7 +21,15 @@ constexpr uint32_t kIdleClockMhz = 80;
 constexpr uint32_t kIdlePollMs = 50;
 constexpr uint32_t kActivePollMs = 12; // dense poll while the radio blocks light sleep
 constexpr uint32_t kMsPerSec = 1000;
-constexpr uint32_t kReceivedMs = 700;
+
+constexpr uint32_t kUiFrameMs = 40;      // ~25 fps redraw, the single UI battery knob
+constexpr uint32_t kDiagFrameMs = 250;   // the diag readout is near static, sample it lazily
+constexpr uint32_t kBootFailMs = 500;    // crack redraw cadence on the dead filesystem screen
+constexpr uint32_t kSplashMs = 1800;     // boot animation, one full screen cycle
+constexpr uint32_t kReceivedMs = 1000;   // upload-received stamp, one full cycle (matches recebido)
+constexpr uint32_t kEncounterMs = 2200;  // friend-arrival transition, one full cycle
+constexpr uint32_t kInterruptMs = 700;   // overlay band lifetime, covers enter, hold and exit
+constexpr size_t kBufferBytes = 1024;    // 128x64 / 8, the OLED pixel buffer
 
 constexpr uint8_t kClicksWifi = 2; // wifi menu (code, status, upload)
 constexpr uint8_t kClicksDiag = 5; // battery diagnostic
@@ -27,8 +39,8 @@ constexpr uint8_t kClicksDiag = 5; // battery diagnostic
 constexpr float kBatteryCal = 1.05f;
 constexpr float kDivider = 2.0f;        // 100k/100k
 constexpr float kUsbThresholdV = 4.30f; // above a real cell means the reading is the usb rail
+constexpr float kFullCellV = 4.2f;
 constexpr uint8_t kDiagSamples = 64;
-constexpr uint32_t kDiagRedrawMs = 500;
 
 Ssd1306Display display;
 Battery battery({.calibration = kBatteryCal});
@@ -62,66 +74,139 @@ bool friendEdge() {
     return proximity.active() && proximity.present() != g_friendShown;
 }
 
+bool gesturePending() {
+    return g_next || g_enterWifi || g_enterDiag;
+}
+
 bool shouldStop() {
     pollNav();
     proximity.tick();
-    return g_next || g_enterWifi || g_enterDiag || friendEdge();
+    return gesturePending() || friendEdge();
 }
 
 // With the radio up, real light sleep would stop the WiFi modem and miss RX windows, so we
 // busy-delay instead. Non-proximity pins keep the light-sleep idle unchanged.
 void idleWait() {
     if (proximity.active())
-        delay(kActivePollMs); // short so callers still catch fast clicks
+        delay(kActivePollMs);
     else
         power::lightSleep(kIdlePollMs, kButtonPin);
 }
 
-bool gesturePending() {
-    return g_next || g_enterWifi || g_enterDiag;
+void pump() {
+    pollNav();
+    proximity.tick();
+    led.heartbeat();
 }
 
-// Low-power wait: clock down and pump input, radio and led until the predicate says stop.
-template <typename KeepWaiting>
-void holdWhile(KeepWaiting keepWaiting) {
+// Static hold: no chrome to animate (held fila image, in-range image), keeps light sleep.
+template <typename Keep>
+void hold(Keep keep) {
     power::cpuClock(kIdleClockMhz);
-    while (keepWaiting()) {
-        pollNav();
-        proximity.tick();
-        led.heartbeat();
+    while (keep()) {
+        pump();
         idleWait();
     }
 }
 
-void holdUntilGesture() {
-    g_next = false; // a carried-over click would keep it from ever sleeping
-    button.reset();
-    holdWhile([] { return !gesturePending() && !friendEdge(); });
+// Animated SINAL screen that reacts to input: redraw at kUiFrameMs, pump nav every pass so
+// beacon cadence and clicks are unaffected by the frame gate. idleWait() light-sleeps between
+// frames when the radio is off (so the unbounded empty screen still deep-idles), busy-delays
+// when it is up.
+template <typename Draw, typename Keep>
+void animate(Draw draw, Keep keep) {
+    power::cpuClock(kIdleClockMhz);
+    const uint32_t start = millis();
+    uint32_t last = 0;
+    while (keep()) {
+        pump();
+        const uint32_t now = millis();
+        if (now - last >= kUiFrameMs) {
+            draw(now - start);
+            display.show();
+            last = now;
+        }
+        idleWait();
+    }
+}
+
+// Transient animation for a fixed span, no navigation (splash, received stamp).
+template <typename Draw>
+void playFor(Draw draw, uint32_t ms) {
+    power::cpuClock(kIdleClockMhz);
+    const uint32_t start = millis();
+    uint32_t last = 0;
+    while (millis() - start < ms) {
+        led.heartbeat();
+        const uint32_t now = millis();
+        if (now - last >= kUiFrameMs) {
+            draw(now - start);
+            display.show();
+            last = now;
+        }
+        idleWait();
+    }
 }
 
 void holdImage(uint8_t seconds) {
     const uint32_t start = millis();
     const uint32_t ms = uint32_t(seconds) * kMsPerSec;
-    holdWhile([&] { return millis() - start < ms && !gesturePending() && !friendEdge(); });
+    hold([&] { return millis() - start < ms && !gesturePending() && !friendEdge(); });
 }
 
 // An in-range image is one frame, so loop() draws it once and then holds here rather than
 // replaying it every pass (which would blank and redraw at full clock).
 void holdWhilePresent() {
-    holdWhile([] { return proximity.present() && !gesturePending(); });
+    hold([] { return proximity.present() && !gesturePending(); });
 }
 
-// Hidden battery diagnostic (5 clicks). Shows the raw divider reading so the
-// calibration can be retuned: read "cru" on battery at a full charge, cal = 4.20 / cru.
-// Read on battery, not usb (on usb the node sits on the ~5V rail). Click to exit.
+// A transient band over the frozen content frame on a click. The buffer is snapshotted once so
+// each frame recomposites the band over the same still image, then playback advances.
+void overlayFila() {
+    battery.update();
+    uint8_t bg[kBufferBytes];
+    uint8_t* buf = display.raw().buffer;
+    memcpy(bg, buf, kBufferBytes);
+    const uint8_t tracks = min(3, bundle.count());
+    const sinal::InterruptModel model{
+        .kind = sinal::Overlay::Fila,
+        .friendCode = nullptr,
+        .battery = battery.percent(),
+        .track = uint8_t(g_current % max<int>(1, tracks)),
+        .trackCount = tracks,
+    };
+    power::cpuClock(kIdleClockMhz);
+    const uint32_t start = millis();
+    uint32_t last = 0;
+    // pump() keeps the button state machine live so a fresh click during the band ends it early
+    // instead of being swallowed (it would otherwise poll nothing for the whole span).
+    while (millis() - start < kInterruptMs && !gesturePending()) {
+        pump();
+        const uint32_t now = millis();
+        if (now - last >= kUiFrameMs) {
+            memcpy(buf, bg, kBufferBytes);
+            sinal::interrupcao(display.raw(), now - start, model);
+            display.show();
+            last = now;
+        }
+        idleWait();
+    }
+}
+
+// Hidden battery diagnostic (5 clicks). Shows the raw divider reading so the calibration can be
+// retuned: read "cru" on battery at a full charge, cal = 4.20 / cru. Read on battery, not usb
+// (on usb the node sits on the ~5V rail). Click to exit.
 void batteryDiag() {
     button.reset(); // drop the burst that opened the diag so a click can exit
     power::cpuClock(kIdleClockMhz);
-    uint32_t lastDraw = 0;
     float lo = 9999.0f;
     float hi = 0.0f;
+    uint32_t last = 0;
     while (button.clicks() == 0) {
-        if (millis() - lastDraw >= kDiagRedrawMs) {
+        proximity.tick();
+        led.heartbeat();
+        const uint32_t now = millis();
+        if (now - last >= kDiagFrameMs) {
             uint32_t sum = 0;
             for (uint8_t i = 0; i < kDiagSamples; ++i)
                 sum += analogReadMilliVolts(kBatteryPin);
@@ -129,17 +214,19 @@ void batteryDiag() {
             lo = min(lo, node);
             hi = max(hi, node);
             const float cru = node * kDivider / kMsPerSec; // cell, uncalibrated
-            const float cal = cru * kBatteryCal;           // what the gauge uses
-            display.clear();
-            display.line(0, "bateria diag");
-            display.line(12, String("node ") + int(node) + "mV " + (cru > kUsbThresholdV ? "USB" : "BAT"));
-            display.line(24, String("min ") + int(lo) + " max " + int(hi));
-            display.line(36, String("cru ") + String(cru, 2) + "V cal " + String(cal, 2) + "V");
+            const sinal::DiagModel model{
+                .nodeMv = int(node),
+                .minMv = int(lo),
+                .maxMv = int(hi),
+                .cru = cru,
+                .cal = cru * kBatteryCal,
+                .level = gfx::clamp01(cru / kFullCellV),
+                .usb = cru > kUsbThresholdV,
+            };
+            sinal::diag(display.raw(), now, model);
             display.show();
-            lastDraw = millis();
+            last = now;
         }
-        proximity.tick();
-        led.heartbeat();
         idleWait();
     }
     g_enterDiag = false;
@@ -188,14 +275,17 @@ void advanceByMode() {
 }
 
 // After playback, act on a pending event. Priority: menu, then friend arrival, then next.
-// Returns true when loop() should restart from the top.
+// A single-click advance flashes the overlay band first. Returns true to restart loop().
 bool interrupted() {
     if (g_enterWifi || g_enterDiag)
         return true;
     if (proximity.present())
         return true;
     if (g_next) {
-        g_next = false;
+        g_next = false; // consume the advancing click before the band, so it does not self-abort
+        overlayFila();
+        if (g_enterWifi || g_enterDiag)
+            return true; // a menu gesture cut the band short: dispatch it, do not advance the fila
         advanceSequential();
         return true;
     }
@@ -214,22 +304,27 @@ void enterWifi() {
     g_enterWifi = false;
     led.on();
     // Snapshot the link before the radio hands to the SoftAP, so the menu can report it.
-    String proxStatus;
+    sinal::FriendState friendState;
     if (proximity.active())
-        proxStatus = String("amigo ") + bundle.target() + (proximity.present() ? " perto" : " longe");
+        friendState = proximity.present() ? sinal::FriendState::Near : sinal::FriendState::Far;
     else if (bundle.proximityEnabled())
-        proxStatus = "encontro: erro";
+        friendState = sinal::FriendState::Error;
     else
-        proxStatus = "sem encontro";
+        friendState = sinal::FriendState::None;
+    const String friendCode = bundle.target();
     proximity.stop(); // the SoftAP needs the radio in AP mode
-    const bool received = pin::runWifiMode(display, battery, button, bundle.ssid().c_str(), proximity.myCode(), proxStatus.c_str());
+    const pin::PortalInfo info{
+        .ssid = bundle.ssid().c_str(),
+        .myCode = proximity.myCode(),
+        .friend_ = friendState,
+        .friendCode = friendCode.c_str(),
+    };
+    const bool received = pin::runWifiMode(display, battery, button, info);
     led.off();
-    if (received) {
-        display.clear();
-        display.line(24, "recebido!");
-        display.show();
-        delay(kReceivedMs);
-    }
+    if (received)
+        playFor([](uint32_t t) { sinal::recebido(display.raw(), t); }, kReceivedMs);
+    button.reset();
+    g_next = false;
     reloadBundle();
 }
 
@@ -244,15 +339,25 @@ void setup() {
     battery.begin();
     proximity.identify();
 
+    playFor([](uint32_t t) { sinal::splash(display.raw(), t); }, kSplashMs);
+    button.reset();
+
     if (!fsMount()) {
-        // A broken filesystem is fatal and not "no content", so halt here with the fault on
-        // screen instead of letting loop() invite a wifi upload that can never persist.
-        display.clear();
-        display.line(8, "LittleFS falhou");
-        display.line(28, "reinicie o pin");
-        display.show();
+        // A broken filesystem is fatal and not "no content", so halt here with the crack tile
+        // on screen instead of letting loop() invite a wifi upload that can never persist.
+        // A dead device may sit here for hours, so light-sleep between the slow crack redraws
+        // instead of busy-spinning. The crack only steps twice a second.
+        power::cpuClock(kIdleClockMhz);
+        uint32_t last = 0;
+        const uint32_t start = millis();
         for (;;) {
             led.heartbeat();
+            const uint32_t now = millis();
+            if (now - last >= kBootFailMs) {
+                sinal::bootFail(display.raw(), now - start);
+                display.show();
+                last = now;
+            }
             power::lightSleep(kIdlePollMs, kButtonPin);
         }
     }
@@ -271,17 +376,25 @@ void loop() {
 
     if (bundle.empty()) {
         g_friendShown = false;
-        display.clear();
-        display.line(4, "sem conteudo");
-        display.line(20, "clique 2x p/ wifi");
-        display.show();
-        holdUntilGesture();
+        g_next = false;
+        button.reset();
+        animate([](uint32_t t) { sinal::semConteudo(display.raw(), t); },
+                [] { return !gesturePending() && !friendEdge(); });
         return;
     }
 
     // A live handshake takes over with the in-range item. g_current stays put so the fila
-    // resumes where it was on leave.
+    // resumes where it was on leave. The arrival plays the encontro transition once.
     if (proximity.present() && bundle.proximityEnabled()) {
+        if (!g_friendShown) {
+            const uint32_t start = millis();
+            animate([](uint32_t t) { sinal::encontroEnter(display.raw(), t, {bundle.target().c_str()}); },
+                    [&] { return millis() - start < kEncounterMs && proximity.present() && !gesturePending(); });
+            // Bail only for a menu gesture or the friend leaving. A plain advance click falls
+            // through and is consumed below (as HEAD did), so it can never livelock the branch.
+            if (g_enterWifi || g_enterDiag || !proximity.present())
+                return;
+        }
         g_friendShown = true;
         const pin::Item& item = bundle.item(bundle.inRangeIndex());
         g_next = false;
