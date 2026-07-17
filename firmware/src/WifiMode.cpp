@@ -10,6 +10,7 @@ namespace {
 constexpr uint32_t kUiFrameMs = 40;
 constexpr uint32_t kWifiStartMs = 1000; // wifi-iniciando animation before the radio blocks
 constexpr uint32_t kSettleMs = 50;      // let the radio settle before the last redraw
+constexpr const char* kApBase = "broche"; // the AP is always broche-<code>
 constexpr const char* kConfigHost = "pin.marmota.dev.br";
 constexpr const char* kUploadHost = "192.168.4.1";
 } // namespace
@@ -17,10 +18,9 @@ constexpr const char* kUploadHost = "192.168.4.1";
 bool runWifiMode(mrm::Ssd1306Display& display, mrm::Battery& battery, mrm::Button& button, const PortalInfo& info) {
     const bool hasCode = info.myCode && info.myCode[0];
     const String code = hasCode ? String(info.myCode) : String();
-    // Append the code to the AP name so a phone reads it from the wifi list, but only when the
-    // "-XXXX" suffix still fits the 32-byte SSID cap. Otherwise broadcast the plain name.
-    const bool codeInSsid = hasCode && String(info.ssid).length() + 5 <= 32;
-    const String apSsid = codeInSsid ? String(info.ssid) + "-" + code : String(info.ssid);
+    // The code rides in the AP name so a phone reads it from the wifi list (broche-<code>);
+    // "broche-XXXX" is 11 bytes, well under the 32-byte SSID cap.
+    const String apSsid = hasCode ? String(kApBase) + "-" + code : String(kApBase);
 
     mrm::WifiPortal portal({.ssid = apSsid.c_str(), .destPath = Bundle::kPath, .page = kUploadPage});
     portal.onValidate([](const char* tmp) { return Bundle::validate(tmp); });

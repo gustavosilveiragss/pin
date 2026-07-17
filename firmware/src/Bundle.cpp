@@ -15,7 +15,6 @@ constexpr size_t kHeaderSize = 8; // magic(4) version(1) mode(1) count(1) flags(
 constexpr size_t kSsidLenSize = 1;
 constexpr size_t kTargetLenSize = 1;
 constexpr size_t kIndexEntrySize = 8; // type(1) holdSec(1) itemFlags(1) reserved(1) length(4)
-constexpr uint8_t kMaxSsidLen = 32;
 constexpr uint8_t kModeMask = 0x03;
 
 constexpr size_t kHeaderVersion = 4;
@@ -40,7 +39,6 @@ bool Bundle::validate(const char* path) {
 bool Bundle::load(const char* path) {
     count_ = 0;
     mode_ = PlayMode::Loop;
-    ssid_ = kDefaultSsid;
     target_ = "";
     inRangeIndex_ = -1;
     playable_ = 0;
@@ -61,17 +59,14 @@ bool Bundle::load(const char* path) {
         return false;
     }
 
+    // Legacy WiFi-name block: ignored now (the AP is always broche-<code>). Skip it; the
+    // length-prefixed slot stays in the format and the current tool writes 0.
     uint8_t ssidLen = 0;
     file.read(&ssidLen, kSsidLenSize);
-    char ssid[256];
-    const size_t ssidRead = ssidLen ? file.read(reinterpret_cast<uint8_t*>(ssid), ssidLen) : 0;
-    if (ssidRead != ssidLen) {
+    uint8_t ssidSkip[256];
+    if (ssidLen && file.read(ssidSkip, ssidLen) != ssidLen) {
         file.close();
         return false;
-    }
-    if (ssidLen >= 1 && ssidLen <= kMaxSsidLen) {
-        ssid[ssidLen] = 0;
-        ssid_ = ssid;
     }
 
     size_t targetBlock = 0;

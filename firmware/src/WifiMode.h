@@ -13,7 +13,6 @@ namespace pin {
 // without the OLED (matters for the button-less build). Pass "" to omit. friend_/friendCode
 // report whether a paired pin was in range, snapshotted before the radio hands to the SoftAP.
 struct PortalInfo {
-    const char* ssid;
     const char* myCode;
     sinal::FriendState friend_;
     const char* friendCode;
