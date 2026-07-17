@@ -725,15 +725,6 @@
       </ol>
     </details>
 
-    <details class="upload-help">
-      <summary><span>configurações adicionais</span><span class="exp-arrow">▾</span></summary>
-      <div class="ctrl-row" style="padding:8px 2px 4px">
-        <span class="lbl">nome do wifi</span>
-        <input type="text" id="wifiName" class="name-in" value="broche" placeholder="broche" autocomplete="off" spellcheck="false" maxlength="27">
-      </div>
-      <p style="font-size:11px;color:var(--muted);text-align:left;padding:0 2px 8px">o novo nome vale a partir do próximo modo wifi, depois que este <b>.pin</b> for enviado.</p>
-    </details>
-
     <details class="upload-help" id="encontroBox">
       <summary><span>encontro (esp-now) <span class="badge" id="encontroBadge">off</span></span><span class="exp-arrow">▾</span></summary>
       <p style="font-size:11.5px;color:var(--muted);text-align:left;padding:2px 2px 8px;line-height:1.55">quando o amigo com o código abaixo estiver <b>por perto</b>, o pin troca pro vídeo marcado com <b>★</b> na fila. leia o código do amigo no <b>pin dele</b> (aparece no menu wifi, <b>2 cliques</b>, e na página que abre) e digite aqui. <b>os dois</b> precisam se configurar um ao outro.</p>
@@ -1756,7 +1747,7 @@ async function idbSet(k, v) { const d = await idbOpen(); return new Promise((res
 async function idbGet(k)    { const d = await idbOpen(); return new Promise((res, rej) => { const t = d.transaction('kv', 'readonly'); const rq = t.objectStore('kv').get(k); rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error); }); }
 
 function cloneItem(it) { return { ...it, blob: new Uint8Array(it.blob) }; }
-async function persistQueue() { try { await idbSet('queue', { playMode, name: ($('bundleName') ? $('bundleName').value : '') || '', wifi: ($('wifiName') ? $('wifiName').value : '') || '', target: ($('targetCode') ? $('targetCode').value : '') || '', items: queue.map(cloneItem) }); } catch (e) {} }
+async function persistQueue() { try { await idbSet('queue', { playMode, name: ($('bundleName') ? $('bundleName').value : '') || '', target: ($('targetCode') ? $('targetCode').value : '') || '', items: queue.map(cloneItem) }); } catch (e) {} }
 async function persistLists() { try { await idbSet('lists', savedLists.map(L => ({ ...L, items: L.items.map(cloneItem) }))); } catch (e) {} }
 function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
@@ -1931,31 +1922,21 @@ function buildBundle() {
   if (!queue.length) return;
   const count = queue.length;
 
-  // Clamp to 27 bytes so the firmware's "-XXXX" code suffix always fits the 32-byte SSID cap
-  // (keeps the "wifi name ends with the code" promise true for any name).
-  let ssid = new TextEncoder().encode(($('wifiName').value || '').trim());
-  if (ssid.length > 27) {
-    let end = 27;
-    while (end > 0 && (ssid[end] & 0xC0) === 0x80) end--;
-    ssid = ssid.slice(0, end);
-  }
-  const sl = ssid.length;
-
   // Proximity block (bundle v2): a 4-char friend code + exactly one starred "encontro" item.
   // Off (no code or no star) => emit v1 byte-for-byte, which runs on any firmware.
   const { code: target, starIdx: inRangeIdx, ready: proximityOn } = proxState();
   const tl = proximityOn ? target.length : 0;
-  const base = 9 + sl + (proximityOn ? 1 + tl : 0);
+  const base = 9 + (proximityOn ? 1 + tl : 0);
   const headerLen = base + count * 8;
   let payloadLen = 0; for (let i = 0; i < count; i++) payloadLen += queue[i].blob.length;
   const buf = new Uint8Array(headerLen + payloadLen);
   const dv = new DataView(buf.buffer);
   buf[0] = 0x50; buf[1] = 0x49; buf[2] = 0x4E; buf[3] = 0x31;
   buf[4] = proximityOn ? 2 : 1; buf[5] = playMode & 0x07; buf[6] = count; buf[7] = 0;
-  buf[8] = sl; buf.set(ssid, 9);
+  buf[8] = 0; // legacy WiFi-name slot, always 0 (the AP is always broche-<code>)
   if (proximityOn) {
-    buf[9 + sl] = tl;
-    for (let i = 0; i < tl; i++) buf[9 + sl + 1 + i] = target.charCodeAt(i);
+    buf[9] = tl;
+    for (let i = 0; i < tl; i++) buf[9 + 1 + i] = target.charCodeAt(i);
   }
   for (let i = 0; i < count; i++) {
     const it = queue[i], e = base + i * 8;
@@ -1977,7 +1958,6 @@ function bundleFileName() {
 }
 $('buildBtn').addEventListener('click', buildBundle);
 $('bundleName').addEventListener('input', persistQueue);
-$('wifiName').addEventListener('input', persistQueue);
 if ($('targetCode')) $('targetCode').addEventListener('input', renderQueue);
 
 async function compressFrames(packedFrames) {
@@ -2255,7 +2235,7 @@ $('addTxtBtn').addEventListener('click', async () => {
 (async function initBundle() {
   try {
     const q = await idbGet('queue');
-    if (q && Array.isArray(q.items)) { queue = q.items.map(it => ({ ...it, blob: new Uint8Array(it.blob) })); playMode = q.playMode === 2 ? 2 : 0; if (q.name) $('bundleName').value = q.name; if (q.wifi) $('wifiName').value = q.wifi; if (q.target && $('targetCode')) $('targetCode').value = q.target; }
+    if (q && Array.isArray(q.items)) { queue = q.items.map(it => ({ ...it, blob: new Uint8Array(it.blob) })); playMode = q.playMode === 2 ? 2 : 0; if (q.name) $('bundleName').value = q.name; if (q.target && $('targetCode')) $('targetCode').value = q.target; }
     const ls = await idbGet('lists');
     if (Array.isArray(ls)) savedLists = ls.map(L => ({ ...L, items: L.items.map(it => ({ ...it, blob: new Uint8Array(it.blob) })) }));
   } catch (e) {}

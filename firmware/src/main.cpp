@@ -314,7 +314,6 @@ void enterWifi() {
     const String friendCode = bundle.target();
     proximity.stop(); // the SoftAP needs the radio in AP mode
     const pin::PortalInfo info{
-        .ssid = bundle.ssid().c_str(),
         .myCode = proximity.myCode(),
         .friend_ = friendState,
         .friendCode = friendCode.c_str(),

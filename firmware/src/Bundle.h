@@ -26,8 +26,8 @@ struct Item {
 //   5           1          mode (0 loop, 2 shuffle)
 //   6           1          count (items, 1..32)
 //   7           1          flags (reserved, 0)
-//   8           1          ssidLen (0..32, UTF-8 bytes of the WiFi name)
-//   9           ssidLen    ssid (missing or >32 bytes falls back to kDefaultSsid)
+//   8           1          ssidLen (legacy WiFi-name length, ignored; the current tool writes 0)
+//   9           ssidLen    ssid (legacy, ignored; the AP name is always broche-<code>)
 //   (v2 only)   1          targetLen (0..8, the paired friend's short code)
 //   (v2 only)   targetLen  target (ASCII base32 code the friend read off their pin)
 //   ...         count*8    index, one 8-byte entry per item
@@ -46,7 +46,6 @@ public:
     static constexpr int kMaxItems = 32;
     static constexpr int kMaxTargetLen = 8;
     static constexpr const char* kPath = "/show.pin";
-    static constexpr const char* kDefaultSsid = "broche";
 
     bool load(const char* path = kPath);
     static bool validate(const char* path); // full structural check before promoting an upload
@@ -55,7 +54,6 @@ public:
     int count() const { return count_; }
     PlayMode mode() const { return mode_; }
     const char* path() const { return kPath; }
-    const String& ssid() const { return ssid_; }
     const Item& item(int index) const { return items_[index]; }
 
     // Proximity (in-range handshake video). Enabled only when the bundle carries a
@@ -71,7 +69,6 @@ private:
     Item items_[kMaxItems];
     int count_ = 0;
     PlayMode mode_ = PlayMode::Loop;
-    String ssid_ = kDefaultSsid;
     String target_;
     int inRangeIndex_ = -1;
     int playable_ = 0;
