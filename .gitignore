@@ -2,3 +2,19 @@
 __pycache__/
 *.pyc
 firmware/data/*.hs
+
+# PlatformIO / clangd build + cache (regeneravel)
+firmware/.pio/
+firmware/.cache/
+firmware/compile_commands.json
+
+# exports pesados do case (regeneraveis do .scad / build_step.py)
+case/*.stl
+case/*.step
+case/*.3mf
+
+# lista de compras: repo publico, NUNCA vai pro git
+COMPRAS.md
+
+# preview do OLED (obsoleto, telas ja no firmware)
+oled-preview/

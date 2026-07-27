@@ -31,25 +31,25 @@ module resistors(){
 module tp4056(){
     translate([4,-9,11]){                              // -Y, USB pra -Y
         color("#123a6b") rbox(18,26,1.2,1);            // PCB azul (o modulo real e azul)
-        color("#c8c8cc") translate([0,-13-1.3,0.6]) cube([9,3.2,3.2],center=true); // USB-C na borda -Y
+        color("#c8c8cc") translate([0,-13-1.3,2.78]) cube([9,3.2,3.2],center=true); // USB-C na borda -Y (centro z=13.78 = real)
         color("#111")    translate([0,2,1.2]) cube([5,5,1.6],center=true);         // TP4056/DW01
         color("#111")    translate([0,-4,1.2]) cube([4,3,1.4],center=true);
     }
 }
 module battery(){
-    translate([0,0,17]) color("#b9bcc2") rbox(30,35,5.5,3);   // pouch prata
-    translate([0,0,17]) color("#8f9298") rbox(30,35,0.1,3);
-    color("#d8b24a") translate([0,17,19.5]) cube([8,2,3],center=true);  // fita kapton (fios)
+    translate([0,0,17]) color("#b9bcc2") rbox(30,36,6,3);     // pouch prata 503035 (~30x36x6 c/ folga)
+    translate([0,0,17]) color("#8f9298") rbox(30,36,0.1,3);
+    color("#d8b24a") translate([0,18,20]) cube([8,2,3],center=true);  // fita kapton (fios)
 }
 module switch_ss(){
-    translate([-11,-21.3,6]){
+    translate([-11,22.3,6]){                                  // parede +Y (OPOSTA da carga)
         color("#1a1a1a") cube([8.5,3.5,3.5],center=true);        // corpo preto
-        color("#c8c8cc") translate([0,-2,0]) cube([9.5,1,3.5],center=true); // frame metal
-        color("#111")    translate([0,-2.2,0]) cube([1.6,1.5,2.4],center=true); // knob
+        color("#c8c8cc") translate([0,2,0]) cube([9.5,1,3.5],center=true); // frame metal (p/ +Y)
+        color("#111")    translate([0,2.2,0]) cube([1.6,1.5,2.4],center=true); // knob (p/ +Y)
     }
 }
 module button_t(){
-    translate([20.5,0,8]) rotate([0,90,0]){                     // parede +X
+    translate([21.5,0,8]) rotate([0,90,0]){                     // parede +X
         color("#1a1a1a") translate([0,0,-3.5]) cube([6,6,3.5],center=true); // corpo 6x6 (dentro)
         color("#222")    cylinder(d=3.5,h=2.5);                 // plunger p/ fora
     }
@@ -61,7 +61,7 @@ module all_internals(){ perfboard(); esp(); resistors(); tp4056(); switch_ss(); 
 // ---- cena ----
 if(show=="closed"){                  // broche pronto
     color("#e0892a") base();
-    color("#e0892a") translate([0,0,24]) lid();
+    color("#e0892a") translate([0,0,26]) lid();
     battery();
 }
 else if(show=="guts"){               // eletronica montada (sem bateria/tampa)
@@ -79,7 +79,7 @@ else if(show=="section"){            // corte vertical: mostra o empilhamento
     difference(){
         union(){
             color("#e0892a") base();
-            color("#e0892a") translate([0,0,24]) lid();
+            color("#e0892a") translate([0,0,26]) lid();
             all_internals(); battery();
         }
         translate([-60,0.1,-10]) cube([120,60,90]);   // corta y>0
@@ -87,7 +87,7 @@ else if(show=="section"){            // corte vertical: mostra o empilhamento
 }
 else if(show=="xray"){
     color([0.88,0.54,0.16,0.25]) base();
-    color([0.88,0.54,0.16,0.25]) translate([0,0,24]) lid();
+    color([0.88,0.54,0.16,0.25]) translate([0,0,26]) lid();
     all_internals(); battery(); oled_ext();
 }
 else {  // open

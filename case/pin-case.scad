@@ -3,6 +3,7 @@
 //  Pebble arredondado. Parafuso M2x5 (postes da tampa + placa nas abas).
 //  Placa no CHAO (parafusa na base). Bateria mezanino no topo. TP4056 parafusa 2 pads. OLED SOLTO fora; jumpers saem
 //  por um buraco entre tampa e caixa (rimo +Y). Tampa LISA.
+//  CARGA (USB-C do TP4056) na parede -Y ; ON/OFF na parede +Y (LADO OPOSTO) ; botao na +X.
 //  Textos (logo do fundo + rotulos USB/ON-OFF/BTN) sao GRAVADOS (recesso
 //  1.0mm, SEM cor). Origem no centro XY; z=0 no CHAO INTERNO.
 //  // CHUTE = confirmar no scan. Multicor opcional: base e lid em cores.
@@ -24,15 +25,15 @@ screw_head = 3.8;    // countersink
 wall   = 2.0;
 floor_th = 2.0;
 lid_th = 2.4;
-inner_w = 41;                 // X (+/-20.5)
-inner_l = 46;                 // Y (+/-23)
-inner_h = 24;                 // z 0..24
+inner_w = 43;                 // X (+/-21.5)   (+2: alivio de montagem)
+inner_l = 48;                 // Y (+/-24)     (+2: alivio de montagem)
+inner_h = 26;                 // z 0..26       (+2: alivio de montagem)
 rout   = 6;                   // raio externo (pebble); r6 contem os postes de canto
 rin    = rout - wall;         // raio interno
 cham_e = 0.8;                 // chanfro arestas inferiores (anti elephant-foot + costura)
-outer_w = inner_w + 2*wall;   // 44
-outer_l = inner_l + 2*wall;   // 50
-// externo 44 x 50 x 28.4
+outer_w = inner_w + 2*wall;   // 47
+outer_l = inner_l + 2*wall;   // 52
+// externo 47 x 52 x 30.4
 
 // ---------- PERFBOARD 10x12 (ESP + R1 + R2), centrada ----------
 pb_pitch = 2.54;
@@ -54,24 +55,29 @@ tp_z0=11.0;                    // PCB mezanino (mais baixo: a placa foi pro chao
 // TP4056 real (pesquisado): PCB 26x18, 6 pads Ø1.54 (retangulo 22.9x14.3). O user
 // PARAFUSA por 2 pads que NAO usa (+/- de entrada, perto do USB-C): fura esses 2
 // pads pra 2.0mm -> M2 auto-atarraxa nos postes. Confirma tp_boss_x/y com a placa.
-tp_boss_x=[-3.2, 11.2]; tp_boss_y=-21; tp_boss_d=5;  // 2 postes nos 2 pads +/- (espac. 14.3)
-usb_w=10.0; usb_h=4.0; usb_cx=4; usb_cz=tp_z0+1.6;   // USB-C real 8.9x3.2 + folga (pesquisado)
+tp_boss_x=[-3.2, 11.2]; tp_boss_y=-21; tp_boss_d=5;  // 2 postes nos 2 pads +/- (espac. 14.4, ja casou c/ a placa)
+// USB-C real: centro do furo = 2.75mm acima do FUNDO do PCB (PCB ~1.2 + centro do vao 1.58).
+// Antes usava +1.6 -> furo ~1.15mm BAIXO: a porta ficava ACIMA e, ao empurrar a placa p/ encaixar,
+// os 2 pads de parafuso desalinhavam (porta e pads sao rigidos no PCB). Furo E postes saem do MESMO
+// datum (tp_z0 = fundo do PCB) -> subindo o furo, os dois voltam a alinhar juntos.
+usb_w=10.0; usb_h=4.0; usb_cx=4; usb_cz=tp_z0+2.75;
 
-// ---------- CHAVE (fenda na parede -Y) ----------
-sw_cx=-11; sw_cz=6; sw_w=4.5; sw_h=2.4;   // SS-12D00G4: curso 2.0 + knob 1.6 (pesquisado)
+// ---------- CHAVE (fenda na parede +Y, OPOSTA da carga) ----------
+// SS-12D00: knob 1.5 quad, curso 2.0. Slot X = 1.5+2.0+folga = 5.0 ; Z = 3.0 (pesquisado)
+sw_cx=-11; sw_cz=6; sw_w=5.0; sw_h=3.0;
 
 // ---------- BOTAO (parede +X) ----------
 btn_d=4.3; btn_y=0; btn_z=8;    // tactile 6x6 do kit: plunger Ø3.5. Painel redondo 6mm -> 6.3
 btn_sock_in=6.4; btn_sock_out=8.4; btn_sock_d=4.5;  // socket 6x6 por dentro (encaixa/segura o corpo solto)
 
 // ---------- POSTES DE CANTO (chao -> tampa, M2) ----------
-post_d=5; post_cx=18.8; post_cy=21.3;   // folga bateria (+/-15.5,+/-18) = 0.8mm
+post_d=5; post_cx=19.8; post_cy=22.3;   // 1.7 da parede; folga bateria 503035 (+/-15.25,+/-18.5): ~2.0mm lados, ~1.3mm topo (antes 0.8)
 
 // ---------- TAMPA LISA + passa-cabo no rimo ----------
 cable_notch_w=12; cable_notch_h=3.2;   // buraco do cabo entre tampa e caixa (rimo +Y)
 
 // ---------- LOGO no fundo externo ----------
-logo_txt="marmota.dev.br"; logo_size=3.4; logo_deep=1.0; logo_y=-18;   // 1.0 = gravado fundo (SEM cor)
+logo_txt="marmota.dev.br"; logo_size=3.0; logo_deep=1.0; logo_y=-18;   // size 3.0 (cabe c/ margem) ; 1.0 = gravado fundo
 
 show_refs=false;
 
@@ -80,28 +86,29 @@ show_refs=false;
 // ============================================================
 module rr(w,l,h,r){ linear_extrude(height=h) offset(r=r) square([w-2*r, l-2*r], center=true); }
 module corners(cx,cy){ for(sx=[-1,1],sy=[-1,1]) translate([sx*cx, sy*cy, 0]) children(); }
-// slot stadium na parede -Y (formato de conector) + lead-in chanfrado na face externa
-module slotY(cx, cz, w, h){
+// slot stadium numa parede +-Y (sy=-1 parede -Y, sy=+1 parede +Y) + lead-in chanfrado na face externa
+module slotY(cx, cz, w, h, sy=-1){
     dx=(w-h)/2;
     hull() for(sx=[-1,1])   // furo passante
-        translate([cx+sx*dx, -(inner_l/2+wall/2), cz]) rotate([90,0,0]) cylinder(h=wall+3, d=h, center=true, $fn=40);
+        translate([cx+sx*dx, sy*(inner_l/2+wall/2), cz]) rotate([90,0,0]) cylinder(h=wall+3, d=h, center=true, $fn=40);
     hull() for(sx=[-1,1]){  // funil de encaixe na face externa
-        translate([cx+sx*dx, -outer_l/2-0.05, cz]) rotate([90,0,0]) cylinder(h=0.02, d=h+2*cham, center=true, $fn=40);
-        translate([cx+sx*dx, -outer_l/2+cham,  cz]) rotate([90,0,0]) cylinder(h=0.02, d=h,        center=true, $fn=40);
+        translate([cx+sx*dx, sy*(outer_l/2+0.05), cz]) rotate([90,0,0]) cylinder(h=0.02, d=h+2*cham, center=true, $fn=40);
+        translate([cx+sx*dx, sy*(outer_l/2-cham),  cz]) rotate([90,0,0]) cylinder(h=0.02, d=h,        center=true, $fn=40);
     }
 }
 
-module txt(t,s){ text(t, size=s, halign="center", valign="center", font="DejaVu Sans:style=Bold"); }
+module txt(t,s,sp=1.25){ text(t, size=s, spacing=sp, halign="center", valign="center", font="DejaVu Sans:style=Bold"); }
 // Gravacoes (2a cor): logo no fundo + rotulo de cada entrada na parede.
 lbl_sz=2.4;
 module engravings(){
     dw=logo_deep+0.02;    // paredes: recesso 1.0
-    df=0.5+0.02;          // fundo do case: 0.5 (nao enfraquece a face de cola do alfinete)
-    // fundo externo (raso)
-    translate([0, logo_y, -floor_th-0.01]) mirror([1,0,0]) linear_extrude(df) txt(logo_txt, logo_size);
-    // parede -Y (grava da face externa): USB-C e ON/OFF, abaixo de cada furo
-    for(L=[["USB-C", usb_cx, usb_cz-4.2], ["ON/OFF", sw_cx, sw_cz-4.2]])
-        translate([L[1], -outer_l/2+logo_deep, L[2]]) rotate([90,0,0]) linear_extrude(dw) txt(L[0], lbl_sz);
+    df=0.8+0.02;          // fundo do case: 0.8 (mais legivel; floor_th=2 aguenta)
+    // fundo externo (raso) - spacing 1.1 (separa o "rm" sem exagerar; baseline alinhada)
+    translate([0, logo_y, -floor_th-0.01]) mirror([1,0,0]) linear_extrude(df) txt(logo_txt, logo_size, 1.1);
+    // parede -Y (carga): USB-C, abaixo do furo
+    translate([usb_cx, -outer_l/2+logo_deep, usb_cz-4.2]) rotate([90,0,0]) linear_extrude(dw) txt("USB-C", lbl_sz);
+    // parede +Y (oposta): ON/OFF. rotate 180 em Z -> glifos leem certo p/ quem olha do lado +Y
+    translate([sw_cx, outer_l/2-logo_deep, sw_cz-4.2]) rotate([90,0,180]) linear_extrude(dw) txt("ON/OFF", lbl_sz);
     // botao (+X): sem escrito
 }
 
@@ -124,8 +131,10 @@ module base(){
                 }
                 translate([0,0,0]) rr(inner_w, inner_l, inner_h+1, rin);
             }
-            // postes de canto ATE A BASE
-            corners(post_cx, post_cy) cylinder(h=inner_h, d=post_d);
+            // postes de canto: param 0.4mm ABAIXO do rim -> a tampa assenta no RIM continuo
+            // (nao nos topos dos postes, que imprimiam proeminentes e impediam o encaixe)
+            corners(post_cx, post_cy) cylinder(h=inner_h-0.4, d=post_d);
+            corners(post_cx, post_cy) translate([0,0,inner_h-0.9]) cylinder(h=0.5, d1=post_d, d2=post_d-1.5); // lead-in do topo
             // POSTES da placa: do CHAO ate a placa (invertido -> suportes na BASE)
             for(m=mount) translate([bx(m[0]), by(m[1]), 0]) cylinder(h=pb_z, d=bpost_d);
             // prateleira da bateria (mezanino): 4 abas de canto (bateria apoia, tampa prende)
@@ -136,8 +145,8 @@ module base(){
             // socket 6x6 do botao tactil (por dentro da parede +X, segura o corpo solto)
             translate([inner_w/2 - btn_sock_d, btn_y - btn_sock_out/2, btn_z - btn_sock_out/2])
                 cube([btn_sock_d + 0.1, btn_sock_out, btn_sock_out]);
-            // cradle da chave SS-12D00 (corpo 8.5x3.5): 2 nervuras flanqueiam -> encaixa+cola facil
-            for(sx=[-1,1]) translate([sw_cx + sx*(8.5/2+0.5), -inner_l/2 + 2, sw_cz])
+            // cradle da chave SS-12D00 (corpo 8.5x3.5) na parede +Y: 2 nervuras flanqueiam -> encaixa+cola facil
+            for(sx=[-1,1]) translate([sw_cx + sx*(8.5/2+0.5), inner_l/2 - 2, sw_cz])
                 cube([1.5, 4, 5], center=true);
         }
         // --- furos de rosca (M2 self) ---
@@ -148,8 +157,8 @@ module base(){
         for(x=tp_boss_x) translate([x, tp_boss_y, tp_z0-4.5]) cylinder(h=5, d=screw_self);
 
         // --- CORTES nas paredes ---
-        slotY(usb_cx, usb_cz, usb_w, usb_h);   // USB-C stadium + lead-in
-        slotY(sw_cx, sw_cz, sw_w, sw_h);       // chave stadium + lead-in
+        slotY(usb_cx, usb_cz, usb_w, usb_h);      // USB-C stadium + lead-in (parede -Y)
+        slotY(sw_cx, sw_cz, sw_w, sw_h, 1);       // chave stadium + lead-in (parede +Y, oposta)
         // botao (+X): furo Ø4.3 do plunger + lead-in chanfrado na face externa
         translate([inner_w/2-0.5, btn_y, btn_z]) rotate([0,90,0]) cylinder(h=wall+2, d=btn_d, $fn=48);
         translate([outer_w/2-0.8, btn_y, btn_z]) rotate([0,90,0]) cylinder(h=1.0, d1=btn_d, d2=btn_d+1.6, $fn=48);
@@ -182,8 +191,12 @@ module lid(){
                 translate([0,0,lid_th-0.8]) rr(outer_w, outer_l, 0.02, rout);
                 translate([0,0,lid_th])     rr(outer_w-1.6, outer_l-1.6, 0.02, max(0.6,rout-0.8));
             }
-            // lips de registro por dentro das paredes +-X (alinham a tampa, seguram o abaulamento)
-            for(sx=[-1,1]) translate([sx*(inner_w/2-0.95), 0, -0.7]) cube([1.2, 15, 1.6], center=true);
+            // lips de registro por dentro das paredes +-X: RIB AFINADA (lead-in) c/ folga ~0.8mm
+            // (antes cube justo 0.35mm -> prendia; agora entra guiando e assenta sem forcar)
+            for(sx=[-1,1]) hull(){
+                translate([sx*(inner_w/2-1.3), 0, -0.2]) cube([1.0, 15, 0.6], center=true);  // topo cruza z=0 (cola na tampa)
+                translate([sx*(inner_w/2-1.9), 0, -1.5]) cube([0.2, 12, 0.4], center=true);  // ponta fina, recuada
+            }
         }
         // furos: passante + CONTRAFURO reto (cabeca panela M2 recolhe rente)
         corners(post_cx, post_cy){
