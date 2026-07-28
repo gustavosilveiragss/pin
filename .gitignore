@@ -18,3 +18,6 @@ COMPRAS.md
 
 # preview do OLED (obsoleto, telas ja no firmware)
 oled-preview/
+
+# venv local do cadquery (build_step.py), regeneravel
+.venv-cq/

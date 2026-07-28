@@ -6,19 +6,24 @@ from cadquery import Solid, Vector
 # --- params (de pin-case.scad) ---
 wall=2.0; floor_th=2.0; lid_th=2.4
 inner_w=45; inner_l=62; inner_h=28   # bateria 103450 (34x50x10) no mezanino
-rout=6; rin=4; cham_e=0.8
+rout=6; rin=rout-wall; cham_e=0.8
 outer_w=inner_w+2*wall; outer_l=inner_l+2*wall
-P=2.54; pb_z=3.0
-def bx(c): return (c-5.5)*P
-def by(r): return (6.5-r)*P
-mount=[(1,8),(10,8),(1,12),(10,12)]
-tp_z0=11.0; tp_boss_x=[-3.2,11.2]; tp_boss_y=-28; tp_boss_d=5
-usb_w=10.0; usb_h=4.0; usb_cx=4; usb_cz=tp_z0+2.75  # centro real 2.75 acima do fundo do PCB (antes +1.6 = baixo)
-sw_cx=-11; sw_cz=6; sw_w=5.0; sw_h=3.0              # chave na parede +Y (oposta), slot knob 5.0x3.0
-btn_d=4.3; btn_y=0; btn_z=8; btn_si=6.4; btn_so=8.4; btn_sd=4.5
+P=2.54; pb_z=3.0; fit=0.4
+def bx(c): return (c-6)*P                            # 11 col centradas (placa 30mm real)
+def by(r): return (6-r)*P
+mount=[(2,3),(10,3),(2,9),(10,9)]                    # 4 furos p/ cantos: X=+-10.16, Y=+-7.62
+tp_z0=11.0; tp_boss_x=[-6,6]; tp_boss_y=-(inner_l/2-2.5); tp_boss_d=6   # TP4056 17mm; d6 FUNDE na parede -Y (nao tangencia)
+usb_w=10.0; usb_h=5.0; usb_cx=0; usb_cz=tp_z0+3.0     # USB-C CENTRADO; centro p/ PCB 1.6mm; slot alto + counterbore
+usb_cb_w=12; usb_cb_h=5.0; usb_cb_deep=1.2            # rebaixo externo alinhado ao slot (sem web 0.25mm), afina p/ 0.8mm
+# chave 12(X larg)x5(Z alt)x5(Y prof): bolso FECHADO + teto 2 aguas (gable) + fenda + counterbore
+sw_cx=-11; sw_cz=6; sw_bw=12; sw_bh=5; sw_bt=5; sw_slot_w=7.0; sw_slot_h=3.6; sw_sock_wall=1.6
+sw_ridge_hw=2.5; sw_roof=1.2; sw_cb_w=11; sw_cb_h=5; sw_cb_deep=1.0
+sw_pk_top=sw_cz+(sw_bh+fit)/2; sw_ridge_z=sw_pk_top+((sw_bw+fit)/2-sw_ridge_hw)   # gable
+# botao 6x6: bolso-tubo + lip fino de 0.8mm -> plunger PROUD ~1.2mm
+btn_y=0; btn_z=8; btn_body=6.0; btn_plunger_d=4.6; btn_lip=0.8; btn_sock_wall=1.6; btn_sock_d=4.5
 post_d=5; post_cx=inner_w/2-1.7; post_cy=inner_l/2-1.7
 notch_w=12; notch_h=3.2
-bpost_d=4; ledge_z=17
+bpost_d=4; ledge_z=16     # topo da aba z16 -> 12mm ate a tampa (folga p/ celula ate 11mm). Cunha de suporte so no .scad (cosmetico)
 scr_self=1.7; scr_free=2.2; scr_head=3.8
 
 def cylZ(x,y,z0,z1,d): return Solid.makeCylinder(d/2, z1-z0, Vector(x,y,z0), Vector(0,0,1))
@@ -48,16 +53,29 @@ adds=[]
 for sx in(-1,1):
   for sy in(-1,1):
     adds.append(cylZ(sx*post_cx, sy*post_cy, 0, inner_h-0.4, post_d))  # 0.4 abaixo do rim -> tampa assenta no rim
-    adds.append(boxC(sx*(inner_w/2-3), sy*(inner_l/2-3), ledge_z+0.75, 6,6,1.5))
+    adds.append(boxC(sx*(inner_w/2-4.5), sy*(inner_l/2-4.5), ledge_z-0.75, 9,9,1.5))  # aba 9x9, apoio ~3.5x3mm/canto, topo z16
 for (c,r) in mount: adds.append(cylZ(bx(c),by(r),0,pb_z,bpost_d))
 for x in tp_boss_x: adds.append(cylZ(x,tp_boss_y,0,tp_z0,tp_boss_d))
-adds.append(boxC(inner_w/2-btn_sd/2, btn_y, btn_z, btn_sd, btn_so, btn_so))
-for sx in(-1,1): adds.append(boxC(sw_cx+sx*(8.5/2+0.5), inner_l/2-2, sw_cz, 1.5,4,5))  # cradle chave na parede +Y
+btn_xout=outer_w/2-btn_lip; btn_wext=btn_body+2*btn_sock_wall+fit; btn_top=btn_z+btn_wext/2
+adds.append(boxC(btn_xout-btn_sock_d/2, btn_y, btn_top/2, btn_sock_d, btn_wext, btn_top))   # bolso-tubo do botao ao CHAO (+X)
+sw_wext=sw_bw+2*sw_sock_wall+fit; sw_d=sw_bt+sw_sock_wall+fit; sw_top=sw_ridge_z+sw_roof   # z0 ate acima da cumeeira
+adds.append(boxC(sw_cx, inner_l/2-sw_d/2+0.01, sw_top/2, sw_wext, sw_d, sw_top))            # bolso da chave ao CHAO, teto 2 aguas (+Y)
 for a in adds: base=base.union(a)
 
-cuts=[stadiumY(usb_cx,usb_cz,usb_w,usb_h), stadiumY(sw_cx,sw_cz,sw_w,sw_h,1)]  # USB -Y, chave +Y
-cuts.append(cylX(btn_y,btn_z,btn_d,wall+2, inner_w/2-0.5))
-cuts.append(boxC(inner_w/2-btn_sd/2-0.5, btn_y, btn_z, btn_sd+1, btn_si, btn_si))
+cuts=[stadiumY(usb_cx,usb_cz,usb_w,usb_h)]                                   # USB-C (-Y)
+cuts.append(boxC(usb_cx, -(outer_l/2)+usb_cb_deep-(usb_cb_deep+0.5)/2, usb_cz, usb_cb_w, usb_cb_deep+0.5, usb_cb_h))  # counterbore externo
+# chave: bolso (abre atras -Y) + teto 2 aguas + fenda do atuador + counterbore externo
+sw_fy=inner_l/2; sw_by=inner_l/2-(sw_bt+sw_sock_wall+fit)-1
+cuts.append(boxC(sw_cx,(sw_fy+sw_by)/2,sw_cz, sw_bw+fit, sw_fy-sw_by, sw_bh+fit))
+_half=(sw_bw+fit)/2
+_gable=(cq.Workplane("XZ").polyline([(-_half,sw_pk_top),(_half,sw_pk_top),(sw_ridge_hw,sw_ridge_z),(-sw_ridge_hw,sw_ridge_z)])
+        .close().extrude(sw_fy-sw_by+0.1)).translate((sw_cx, sw_fy+0.05, 0)).val()   # remove o pico -> encostas 45
+cuts.append(_gable)
+cuts.append(stadiumY(sw_cx,sw_cz,sw_slot_w,sw_slot_h,1))
+cuts.append(boxC(sw_cx, (outer_l/2)-sw_cb_deep+(sw_cb_deep+0.5)/2, sw_cz, sw_cb_w, sw_cb_deep+0.5, sw_cb_h))  # counterbore +Y
+# botao: bolso-tubo (abre pro interior -X) + furo do plunger no lip
+cuts.append(boxC(btn_xout-(btn_sock_d+1)/2+0.01, btn_y, btn_z, btn_sock_d+1, btn_body+fit, btn_body+fit))
+cuts.append(cylX(btn_y,btn_z,btn_plunger_d, btn_lip+0.3, btn_xout-0.1))
 cuts.append(boxC(0, inner_l/2+wall/2, inner_h-notch_h/2+2, notch_w, wall+3, notch_h+4))
 for sx in(-1,1):
   for sy in(-1,1): cuts.append(cylZ(sx*post_cx, sy*post_cy, inner_h-5.5, inner_h+0.5, scr_self))
@@ -83,7 +101,7 @@ try:
         return cq.Compound.makeCompound(shapes)
     # logo: texto INTEIRO num text() so (baseline alinhada, bloco centrado -> sem wobble). size 3.0.
     lgw = cq.Workplane("XY").text("marmota.dev.br",3.0,0.8,halign="center",valign="center")
-    lg = cq.Compound.makeCompound(lgw.vals()).mirror("YZ").translate((0,-18,-floor_th))
+    lg = cq.Compound.makeCompound(lgw.vals()).mirror("YZ").translate((0,-25,-floor_th))  # = logo_y do .scad
     base = base.cut(lg)
     def wl(t,cx,cz,sy=-1):
         g=spaced(t,2.4,1.0).rotate((0,0,0),(1,0,0),90)
@@ -107,34 +125,11 @@ for sx in(-1,1):
     lc.append(cylZ(sx*post_cx,sy*post_cy,lid_th-1.4,lid_th+1,scr_head+0.4))
 for c in lc: lid=lid.cut(c)
 
-# --- MOCKS ---
-mocks={
- "perfboard": boxC(0,0,3.8, 25.4,30.5,1.6),
- "esp":       boxC(-2.5,7.6,7.1, 18,15,5),
- "tp4056":    boxC(4,-16,11.8, 18,26,1.6),
- "bateria":   boxC(0,0,22, 34,50,10),
- "chave":     boxC(-11,29.3,6, 8.5,3.5,3.5),   # parede +Y
- "botao":     boxC(22.5,0,8, 4,6,6),
-}
-
 def solidOf(x): return x.val() if hasattr(x,"val") else x
 
-# STEP 1: so a caixa (base + tampa lado a lado)
+# STEP editavel pro Onshape: base + tampa lado a lado (uma peca cada, mesmo arquivo)
 a1=cq.Assembly(name="pin-case")
 a1.add(solidOf(base), name="base")
 a1.add(solidOf(lid).moved(cq.Location(Vector(outer_w+12,0,0))), name="tampa")
 a1.save("case/pin-case.step")
-
-# STEP 2: montagem completa (caixa fechada + componentes)
-a2=cq.Assembly(name="pin-montagem")
-a2.add(solidOf(base), name="base")
-a2.add(solidOf(lid).moved(cq.Location(Vector(0,0,26))), name="tampa")
-for n,s in mocks.items(): a2.add(s, name=n)
-a2.save("case/pin-montagem.step")
-
-# (guards de fuzzy skin removidos: nao precisa mais da separacao no Bambu)
-
-# STL da base pra validar (renderizo no OpenSCAD)
-cq.exporters.export(base, "/tmp/cq_base.stl")
-cq.exporters.export(lid, "/tmp/cq_lid.stl")
-print("OK: pin-case.step + pin-montagem.step gerados")
+print("OK: case/pin-case.step gerado")
