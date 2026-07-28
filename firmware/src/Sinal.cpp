@@ -60,19 +60,11 @@ void splash(SSD1306Wire& oled, uint32_t t) {
         coalesceDots(oled, cx, cy, gfx::easeOut(p / 0.42f));
         return;
     }
-    const int16_t bob = lroundf(sinf(t / 260.0f));
-    oled.fillCircle(cx, cy + bob, 14);
-    oled.setColor(BLACK);
-    for (int16_t i = 0; i < 16; ++i) {
-        const int16_t w = max(1, int(lroundf(11 * (1 - abs(i - 8) / 8.0f))));
-        oled.fillRect(cx - 5, cy - 8 + i + bob, w, 1);
-    }
-    oled.setColor(WHITE);
-    if (p > 0.45f && p < 0.82f) {
-        const float a = (p - 0.45f) / 0.37f;
-        const int16_t radii[3] = {int16_t(a * 12), int16_t(a * 24 - 8), int16_t(a * 34 - 16)};
-        pingSpec(oled, cx, cy + bob, radii, 3);
-    }
+    const float a = (p - 0.42f) / 0.58f;
+    if (a < 0.3f)
+        oled.fillCircle(cx, cy, 2);
+    const int16_t radii[3] = {int16_t(a * 46), int16_t(a * 46 - 15), int16_t(a * 46 - 30)};
+    pingSpec(oled, cx, cy, radii, 3);
 }
 
 void bootFail(SSD1306Wire& oled, uint32_t t) {
@@ -101,17 +93,17 @@ void semConteudo(SSD1306Wire& oled, uint32_t t) {
     }
     oled.fillRect(62, 14, 4, 12);
     oled.fillRect(58, 18, 12, 4);
-    oled.drawCircle(40, 48, 6);
+    oled.drawCircle(40, 44, 6);
     if (p < 0.25f || (p > 0.5f && p < 0.75f))
-        oled.fillCircle(40, 48, 4);
-    oled.drawCircle(54, 48, 6);
+        oled.fillCircle(40, 44, 4);
+    oled.drawCircle(54, 44, 6);
     if ((p > 0.25f && p < 0.5f) || p > 0.75f)
-        oled.fillCircle(54, 48, 4);
-    oled.drawLine(63, 48, 71, 48);
-    oled.drawLine(71, 48, 68, 45);
-    oled.drawLine(71, 48, 68, 51);
-    gfx::wifiArcs(oled, 84, 54, int(p * 4) % 4 + 1, 4);
-    text(oled, 47, 55, "2x", TEXT_ALIGN_CENTER);
+        oled.fillCircle(54, 44, 4);
+    oled.drawLine(63, 44, 71, 44);
+    oled.drawLine(71, 44, 68, 41);
+    oled.drawLine(71, 44, 68, 47);
+    gfx::wifiArcs(oled, 84, 50, int(p * 4) % 4 + 1, 4);
+    text(oled, 47, 51, "2x", TEXT_ALIGN_CENTER);
 }
 
 void interrupcao(SSD1306Wire& oled, uint32_t t, const InterruptModel& m) {
@@ -185,11 +177,6 @@ void wifiStarting(SSD1306Wire& oled, uint32_t t) {
     const uint32_t dur = 1200;
     gfx::wifiArcs(oled, 64, 44, int((t % dur) / 300) % 4, 10);
     oled.fillRect(58, 46, 12, 4);
-    for (int16_t i = 0; i < 3; ++i) {
-        const int16_t yy = 42 - int16_t((t / 120 + i * 6) % 26);
-        oled.setPixel(63, yy);
-        oled.setPixel(64, yy);
-    }
 }
 
 void portal(SSD1306Wire& oled, uint32_t t, const PortalModel& m) {
