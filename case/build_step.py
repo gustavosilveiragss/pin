@@ -14,7 +14,7 @@ def by(r): return (6.5-r)*P
 mount=[(1,8),(10,8),(1,12),(10,12)]
 tp_z0=11.0; tp_boss_x=[-3.2,11.2]; tp_boss_y=-28; tp_boss_d=5
 usb_w=10.0; usb_h=4.0; usb_cx=4; usb_cz=tp_z0+2.75  # centro real 2.75 acima do fundo do PCB (antes +1.6 = baixo)
-sw_cx=-11; sw_cz=6; sw_w=5.0; sw_h=3.0              # chave na parede +Y (oposta); slot knob 5.0x3.0
+sw_cx=-11; sw_cz=6; sw_w=5.0; sw_h=3.0              # chave na parede +Y (oposta), slot knob 5.0x3.0
 btn_d=4.3; btn_y=0; btn_z=8; btn_si=6.4; btn_so=8.4; btn_sd=4.5
 post_d=5; post_cx=inner_w/2-1.7; post_cy=inner_l/2-1.7
 notch_w=12; notch_h=3.2
@@ -65,7 +65,7 @@ for (c,r) in mount: cuts.append(cylZ(bx(c),by(r),-1,pb_z+0.5,scr_self))
 for x in tp_boss_x: cuts.append(cylZ(x,tp_boss_y,tp_z0-4.5,tp_z0+0.5,scr_self))
 for c in cuts: base=base.cut(c)
 
-# --- GRAVACOES (mesmo do .scad; se a fonte falhar, gera sem) ---
+# --- GRAVACOES (mesmo do .scad, se a fonte falhar, gera sem) ---
 # CadQuery.text() nao tem spacing -> monto letra por letra c/ tracking (track=1.25).
 try:
     def glyph(ch,s,d): return cq.Workplane("XY").text(ch,s,d,combine=False,halign="center",valign="center")

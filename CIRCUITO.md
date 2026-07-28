@@ -84,7 +84,7 @@ Resistor de 5% e ganho de ADC variam de placa pra placa: sem calibrar, o mesmo 3
 1. carregue ate o LED verde do TP4056
 2. tire o USB e espere ~1 minuto (a celula relaxa de 4.25 pra ~4.20V)
 3. ligue na chave, 5 cliques abrem o diagnostico
-4. 2 cliques gravam `cal = 4.20 / cru`; o numero em `cal` na tela passa a bater com 4.20
+4. 2 cliques gravam `cal = 4.20 / cru`. O numero em `cal` na tela passa a bater com 4.20
 5. um clique sai
 
 Feito uma vez por broche. Enquanto estiver no USB o diag recusa gravar (o no fica no rail de 5V).

@@ -54,7 +54,7 @@ module button_t(){
         color("#222")    cylinder(d=3.5,h=2.5);                 // plunger p/ fora
     }
 }
-// (OLED fora da simulacao — ele fica solto por fora, ligado por jumpers pelo notch)
+// (OLED fora da simulacao, ele fica solto por fora, ligado por jumpers pelo notch)
 
 module all_internals(){ perfboard(); esp(); resistors(); tp4056(); switch_ss(); button_t(); }
 

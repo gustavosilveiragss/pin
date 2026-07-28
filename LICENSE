@@ -24,5 +24,6 @@ SOFTWARE.
 ---
 
 Third-party:
-- firmware/heatshrink_*.{c,h} — heatshrink compression library, ISC License,
-  (c) 2013-2015 Scott Vokes. See firmware/heatshrink_LICENSE.
+- firmware/lib/heatshrink/heatshrink_*: heatshrink compression library, ISC License,
+  (c) 2013-2015 Scott Vokes. See firmware/lib/heatshrink/heatshrink_LICENSE.
+- docs/qrcode.js: QR Code generator, MIT License, (c) 2009 Kazuhiko Arase.
