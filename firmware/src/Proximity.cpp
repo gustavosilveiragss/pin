@@ -14,9 +14,10 @@ namespace {
 constexpr uint8_t kChannel = 1; // todo pin fixa o mesmo canal (sem scan/hop)
 
 constexpr uint8_t kMagic = 0xB7;
-constexpr uint8_t kVersion = 0x01;
+constexpr uint8_t kVersion = 0x02; // v2: bit0 do flags e o ack do handshake, nao o present local
 
-// beacon de broadcast de 10 bytes. flags bit0 = sender conectado, bit1 = sender tem alvo.
+// beacon de broadcast de 10 bytes. flags bit0 = sender ouve o alvo dele fresco (o ack do
+// handshake), bit1 = sender tem alvo.
 struct __attribute__((packed)) Beacon {
     uint8_t magic;
     uint8_t version;
@@ -27,18 +28,13 @@ struct __attribute__((packed)) Beacon {
 };
 static_assert(sizeof(Beacon) == 10, "beacon wire size");
 
-// A WINDOW e o INTERVAL de wake sao ambos em milissegundos. O header do IDF 4.4 documenta errado
-// a window como microssegundos (um typo conhecido, uma window em us e curta demais pra ouvir um
-// beacon). A window fica acima do pior caso de espacamento do beacon pra toda window aberta pegar
-// um beacon, dando deteccao deterministica sem zona morta de phase-lock. A duty de RX e
-// window/interval, cerca de 5% em discovery e 2.5% conectado. Isso so limita o RF quando o
-// sta_disconnected_pm esta ligado (ver configure()), entao o mA real ainda precisa de medida.
-constexpr uint16_t kWakeWindowMs = 150;     // >= pior caso de espacamento do beacon (~133ms no video)
-constexpr uint16_t kDiscIntervalMs = 3000;  // discovery: abre uma janela de escuta ~a cada 3 s
-constexpr uint16_t kConnIntervalMs = 6000;  // conectado: mais preguicoso, so vigia a saida
-constexpr uint32_t kBeaconPeriodMs = 100;   // TX livre (TX e barato, RX nao)
-constexpr uint32_t kArriveFreshMs = 1600;   // um beacon mutuo tao recente => amigo esta aqui
-constexpr uint32_t kLeaveMs = 30000;        // ~30 s de silencio => amigo saiu (volta pra fila)
+constexpr uint32_t kBeaconPeriodMs = 100; // TX barato, o RX continuo ouve tudo
+
+// Janela de frescor do handshake, 8 slots de beacon. Ouvir o amigo conta como fresco ate 7
+// beacons seguidos se perderem (com 20% de perda por direcao, 8 misses seguidos e ~0.2^8 por
+// slot, na pratica nunca), e o link cai em ate ~800ms quando o amigo some, os dois lados dentro
+// de ~1 periodo de beacon um do outro.
+constexpr uint32_t kFreshMs = 800;
 
 uint32_t rd20(const uint8_t* p) {
     return (uint32_t(p[0]) << 16 | uint32_t(p[1]) << 8 | uint32_t(p[2])) & 0xFFFFF;
@@ -52,10 +48,7 @@ void wr20(uint8_t* p, uint32_t v) {
 
 } // namespace
 
-volatile uint32_t Proximity::s_lastMatchMs = 0;
-volatile uint32_t Proximity::s_matchCount = 0;
-uint32_t Proximity::s_myUid = 0;
-uint32_t Proximity::s_myTarget = 0;
+Proximity* Proximity::s_active = nullptr;
 
 void Proximity::identify() {
     if (identified_)
@@ -84,30 +77,20 @@ bool Proximity::configure(const Bundle& bundle) {
     if (myTarget_ == 0 || myTarget_ == myUid_)
         return false; // indecodificavel, ou nosso proprio codigo (nunca casa) => fica off, item na fila
 
-    s_myUid = myUid_;
-    s_myTarget = myTarget_;
-    s_lastMatchMs = 0;
-    s_matchCount = 0;
+    // O estado do handshake nasce stale: lastRxMs_ recuado em kFreshMs deixa now - lastRxMs_ ja
+    // fora da janela desde o primeiro tick (a aritmetica unsigned modular cobre o underflow perto
+    // do boot).
+    lastRxMs_ = millis() - kFreshMs;
+    peerAcks_ = 0;
+    present_ = false;
+    lastTxMs_ = 0;
 
     // Daqui o RF esta ligado (bomba de carga do OLED perturbada), entao todo caminho abaixo
-    // retorna true. O core padrao ja vem com CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE off,
-    // entao WiFi.mode() deixaria o sta_disconnected_pm false e a window/interval ignoradas (radio
-    // preso em RX continuo ~85mA). E um campo de init-config em runtime, entao re-inicia o wifi
-    // com ele forcado ligado. O netif e o event loop padrao do WiFi.mode persistem nisso.
+    // retorna true. O radio fica em RX continuo: WIFI_PS_NONE desliga o power save do modem e
+    // toda transmissao do amigo e ouvida, sem fase de janela de wake pra desalinhar os dois pins.
+    // Custa mais bateria que um duty cycle, o preco do handshake simetrico deterministico.
     WiFi.mode(WIFI_STA);
-    esp_wifi_stop();
-    esp_wifi_deinit();
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    cfg.sta_disconnected_pm = true;
-    if (esp_wifi_init(&cfg) != ESP_OK) {
-        WiFi.mode(WIFI_OFF);
-        return true;
-    }
-    esp_wifi_set_storage(WIFI_STORAGE_RAM);
-    esp_wifi_set_mode(WIFI_MODE_STA);
-    esp_wifi_start();
-
-    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+    esp_wifi_set_ps(WIFI_PS_NONE);
     esp_wifi_set_channel(kChannel, WIFI_SECOND_CHAN_NONE);
     if (esp_now_init() != ESP_OK) {
         WiFi.mode(WIFI_OFF);
@@ -124,11 +107,9 @@ bool Proximity::configure(const Bundle& bundle) {
         WiFi.mode(WIFI_OFF);
         return true;
     }
+    s_active = this;
     esp_now_register_recv_cb(&Proximity::onRecv);
 
-    setDuty(kWakeWindowMs, kDiscIntervalMs);
-    present_ = false;
-    lastTxMs_ = 0;
     active_ = true;
     return true;
 }
@@ -136,6 +117,8 @@ bool Proximity::configure(const Bundle& bundle) {
 void Proximity::stop() {
     if (active_) {
         esp_now_unregister_recv_cb();
+        if (s_active == this)
+            s_active = nullptr;
         esp_now_deinit();
         WiFi.mode(WIFI_OFF);
     }
@@ -143,20 +126,18 @@ void Proximity::stop() {
     present_ = false;
 }
 
-void Proximity::setDuty(uint16_t windowMs, uint16_t intervalMs) {
-    esp_now_set_wake_window(windowMs); // milissegundos
-#if defined(ESP_IDF_VERSION_MAJOR) && ESP_IDF_VERSION_MAJOR >= 5
-    esp_wifi_connectionless_module_set_wake_interval(intervalMs);
-#else
-    esp_wifi_set_connectionless_wake_interval(intervalMs);
-#endif
+// True se o ultimo beacon mutuo do amigo chegou dentro da janela de frescor.
+bool Proximity::hearsFresh(uint32_t now) const {
+    return (now - lastRxMs_) < kFreshMs;
 }
 
 void Proximity::sendBeacon() {
     Beacon b;
     b.magic = kMagic;
     b.version = kVersion;
-    b.flags = uint8_t((present_ ? 0x01 : 0x00) | 0x02);
+    // bit0 e o ack: este pin ouve o alvo dele fresco. O amigo so liga o present dele com esse
+    // bit, entao o handshake exige o link nas duas direcoes.
+    b.flags = uint8_t((hearsFresh(millis()) ? 0x01 : 0x00) | 0x02);
     wr20(b.sender, myUid_);
     wr20(b.target, myTarget_);
     b.seq = seq_++;
@@ -168,22 +149,12 @@ void Proximity::tick() {
     if (!active_)
         return;
     const uint32_t now = millis();
-    const uint32_t last = s_lastMatchMs;
-    const bool matched = s_matchCount > 0;
 
-    // Um beacon mutuo e confiavel (match do codigo de 40 bits mais o CRC do ESP-NOW), entao a
-    // chegada e imediata. O timeout de saida e a histerese que impede um beacon perdido de flapar.
-    if (!present_) {
-        if (matched && (now - last) < kArriveFreshMs) {
-            present_ = true;
-            setDuty(kWakeWindowMs, kConnIntervalMs);
-        }
-    } else {
-        if (!matched || (now - last) > kLeaveMs) {
-            present_ = false;
-            setDuty(kWakeWindowMs, kDiscIntervalMs);
-        }
-    }
+    // present_ exige as duas direcoes: eu ouco o amigo fresco E o ultimo beacon dele confirma que
+    // ele tambem me ouve fresco. Os dois lados sobem juntos em ~1 periodo de beacon e caem juntos
+    // quando qualquer direcao seca (o ack do outro lado zera, ou o silencio passa da janela). Um
+    // beacon perdido nao flapa, a janela cobre varios slots.
+    present_ = hearsFresh(now) && peerAcks_ != 0;
 
     if (now - lastTxMs_ >= kBeaconPeriodMs) {
         sendBeacon();
@@ -191,20 +162,29 @@ void Proximity::tick() {
     }
 }
 
-#if defined(ESP_IDF_VERSION_MAJOR) && ESP_IDF_VERSION_MAJOR >= 5
-void Proximity::onRecv(const struct esp_now_recv_info*, const uint8_t* data, int len) {
-#else
-void Proximity::onRecv(const uint8_t*, const uint8_t* data, int len) {
-#endif
+void Proximity::handleRx(const uint8_t* data, int len) {
+    if (!active_)
+        return; // um callback em voo durante o stop() nao escreve estado
     if (len < int(sizeof(Beacon)))
         return;
     const Beacon* b = reinterpret_cast<const Beacon*>(data);
     if (b->magic != kMagic || b->version != kVersion)
         return;
-    if (rd20(b->sender) == s_myTarget && rd20(b->target) == s_myUid) {
-        s_lastMatchMs = millis();
-        s_matchCount = s_matchCount + 1;
-    }
+    if (rd20(b->sender) != myTarget_ || rd20(b->target) != myUid_)
+        return;
+    // O ack antes do timestamp: um tick que ve o lastRxMs_ fresco le um ack no minimo tao novo.
+    peerAcks_ = uint32_t(b->flags & 0x01);
+    lastRxMs_ = millis();
+}
+
+#if defined(ESP_IDF_VERSION_MAJOR) && ESP_IDF_VERSION_MAJOR >= 5
+void Proximity::onRecv(const struct esp_now_recv_info*, const uint8_t* data, int len) {
+#else
+void Proximity::onRecv(const uint8_t*, const uint8_t* data, int len) {
+#endif
+    Proximity* p = s_active; // copia local, o stop() pode zerar durante o voo
+    if (p)
+        p->handleRx(data, len);
 }
 
 } // namespace pin

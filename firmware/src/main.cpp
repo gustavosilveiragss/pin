@@ -112,7 +112,7 @@ bool shouldStop() {
     return gesturePending() || friendEdge();
 }
 
-// Com o radio ligado, o light sleep de verdade pararia o modem WiFi e perderia janelas de RX,
+// Com o radio ligado, o light sleep de verdade pararia o modem WiFi e derrubaria o RX continuo,
 // entao usa busy-delay. Nos pins sem proximidade o idle com light sleep fica igual.
 void idleWait() {
     if (proximity.active())
@@ -164,7 +164,10 @@ void animate(Draw draw, Keep keep) {
     }
 }
 
-// Animacao transiente por um tempo fixo, sem navegacao (splash, selo de recebido).
+// Animacao transiente por um tempo fixo, sem navegacao (splash, selo de recebido). O tick da
+// proximidade roda aqui pro beacon continuar saindo e o amigo nao ver o link secar durante a
+// animacao. So o tick, sem pollNav: um clique durante a animacao continua descartado pelo
+// button.reset() do caller, como em toda tela sem navegacao.
 template <typename Draw>
 void playFor(Draw draw, uint32_t ms) {
     power::cpuClock(kIdleClockMhz);
@@ -172,6 +175,7 @@ void playFor(Draw draw, uint32_t ms) {
     uint32_t last = 0;
     while (millis() - start < ms) {
         led.heartbeat();
+        proximity.tick();
         const uint32_t now = millis();
         if (now - last >= sinal::kUiFrameMs) {
             draw(now - start);
@@ -362,11 +366,11 @@ void enterWifi() {
     const bool received = pin::runWifiMode(display, battery, button, info);
     g_lastLoadMs = millis();
     led.off();
+    reloadBundle(); // o radio volta ja aqui, o beacon corre durante o selo de recebido
     if (received)
         playFor([](uint32_t t) { sinal::recebido(display.raw(), t); }, kReceivedMs);
     button.reset();
     g_next = false;
-    reloadBundle();
 }
 
 } // namespace

@@ -21,3 +21,6 @@ oled-preview/
 
 # venv local do cadquery (build_step.py), regeneravel
 .venv-cq/
+
+# simulador de host da proximidade (harness local com mocks, nao versionado)
+firmware/sim/
