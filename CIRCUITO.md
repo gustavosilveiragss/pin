@@ -13,7 +13,7 @@ Broche ESP32-C3 com OLED, bateria LiPo e carga USB-C. Esquema visual em [`perfbo
 | Chave SS-12D00 | liga e desliga |
 | Botao momentario | na case, ligado no boot (IO9) |
 | 2x resistor 100k | divisor pra ler a bateria |
-| 1x capacitor 100nF | opcional, do no do divisor pro GND: estabiliza a leitura |
+| 1x capacitor 100nF | do no do divisor pro GND, junto do IO3 |
 | Alfinete de broche | fixacao |
 
 ## Pinos do ESP32-C3
@@ -69,11 +69,29 @@ Botao momentario, em paralelo com o boot da placa, levado pra fora na case. Um c
 | 5V | R1 de 100k |
 | R1 e R2 | no comum |
 | no comum | IO3 |
+| no comum | capacitor 100nF |
+| capacitor 100nF | GND |
 | R2 de 100k | GND |
 
 O no fica na metade da tensao da bateria, entao o IO3 le Vbat dividido por 2. O IO3 e do ADC1, que funciona com o WiFi ligado.
 
-O divisor de 100k tem impedancia alta (50k no no) pro sample and hold do ADC, o que puxa a leitura pra baixo. O firmware compensa com media aparada de 32 amostras mais a constante `kBatteryCal` (main.cpp). Um capacitor de 100nF do no pro GND segura a carga entre as conversoes e derruba o ruido do radio: da pra viver sem, mas com ele a leitura para de dancar.
+O divisor de 100k tem impedancia alta (50k no no) pro sample and hold do ADC, o que puxa a leitura pra baixo. O capacitor de 100nF do no pro GND segura a carga entre as conversoes e mata o ruido do radio, entao ele nao e opcional: o firmware assume que ele esta la (`kBatteryCal = 1.0`). Se montar sem o cap, a leitura sai ~5% baixa e a calibracao tem que compensar isso.
+
+### Calibracao da bateria (por unidade)
+
+Resistor de 5% e ganho de ADC variam de placa pra placa: sem calibrar, o mesmo 3.7V real pode virar 3.5V num broche e 3.9V no outro. O firmware guarda uma constante por unidade na NVS.
+
+1. carregue ate o LED verde do TP4056
+2. tire o USB e espere ~1 minuto (a celula relaxa de 4.25 pra ~4.20V)
+3. ligue na chave, 5 cliques abrem o diagnostico
+4. 2 cliques gravam `cal = 4.20 / cru`; o numero em `cal` na tela passa a bater com 4.20
+5. um clique sai
+
+Feito uma vez por broche. Enquanto estiver no USB o diag recusa gravar (o no fica no rail de 5V).
+
+O firmware so le a bateria em idle (80MHz, radio desligado). Durante video, encontro ou portal WiFi ele mostra a ultima leitura boa, em vez de uma leitura afundada pelo consumo.
+
+Carregando com a chave ligada o numero mente: o TP4056 segura o terminal em 4.2V e o broche mostra cheio mesmo com a celula pela metade. Sem fio no pino CHRG nao da pra detectar isso, entao a regra e: leia a porcentagem fora do carregador.
 
 ## Consumo e autonomia
 

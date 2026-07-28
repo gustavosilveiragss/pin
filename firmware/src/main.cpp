@@ -1,5 +1,6 @@
 #include <marmota.h>
 
+#include <Preferences.h>
 #include <cstring>
 
 #include "Bundle.h"
@@ -36,10 +37,13 @@ constexpr size_t kBufferBytes = 1024;    // 128x64 / 8, the OLED pixel buffer
 
 constexpr uint8_t kClicksWifi = 2; // wifi menu (code, status, upload)
 constexpr uint8_t kClicksDiag = 5; // battery diagnostic
+constexpr uint8_t kClicksCal = 2;  // dentro do diag: grava a calibracao
 
-// 1.05 corrects the ~5% under-read from the 100k/100k divider source impedance
-// (measured 3.99V raw at a full cell). Retune per unit from the diag screen.
-constexpr float kBatteryCal = 1.05f;
+// Fallback trim, sobrescrito pela calibracao por unidade gravada na NVS (diag, 2 cliques).
+// Assume o cap de 100nF no no do divisor; sem ele a leitura cai ~5% (use 1.05).
+constexpr float kBatteryCal = 1.0f;
+constexpr const char* kNvsNamespace = "pin";
+constexpr const char* kNvsCalKey = "batcal";
 constexpr float kDivider = 2.0f;        // 100k/100k
 constexpr float kUsbThresholdV = 4.30f; // above a real cell means the reading is the usb rail
 constexpr float kFullCellV = 4.2f;
@@ -56,6 +60,21 @@ Led led({.pin = kLedPin});
 pin::Bundle bundle;
 pin::Player player(display);
 pin::Proximity proximity;
+Preferences prefs;
+
+void loadCalibration() {
+    prefs.begin(kNvsNamespace, true);
+    const float cal = prefs.getFloat(kNvsCalKey, 0.0f);
+    prefs.end();
+    if (cal > 0.5f && cal < 2.0f)
+        battery.setCalibration(cal);
+}
+
+void saveCalibration(float cal) {
+    prefs.begin(kNvsNamespace, false);
+    prefs.putFloat(kNvsCalKey, cal);
+    prefs.end();
+}
 
 bool g_next = false;
 bool g_enterWifi = false;
@@ -104,7 +123,10 @@ void pump() {
     pollNav();
     proximity.tick();
     led.heartbeat();
-    battery.update(); // self-gated on its interval, so this is a millis compare on most passes
+    // So mede em estado conhecido: 80MHz, radio off, sem decode. Com radio ou video a celula
+    // afunda alguns mV e a leitura cairia em degrau que a histerese nunca deixa voltar.
+    if (!proximity.active())
+        battery.update();
 }
 
 // Static hold: no chrome to animate (held fila image, in-range image), keeps light sleep.
@@ -201,16 +223,24 @@ void overlayFila() {
     }
 }
 
-// Hidden battery diagnostic (5 clicks). Shows the raw divider reading so the calibration can be
-// retuned: read "cru" on battery at a full charge, cal = 4.20 / cru. Read on battery, not usb
-// (on usb the node sits on the ~5V rail). Click to exit.
+// Diagnostico escondido (5 cliques). Mostra a leitura crua do divisor. Com a celula cheia e em
+// repouso (fora do carregador), 2 cliques gravam cal = 4.20 / cru na NVS: e o que tira o erro de
+// resistor e de ganho de ADC desta unidade. Um clique sai.
 void batteryDiag() {
     button.reset(); // drop the burst that opened the diag so a click can exit
     power::cpuClock(kIdleClockMhz);
     float lo = 9999.0f;
     float hi = 0.0f;
     uint32_t last = 0;
-    while (button.clicks() == 0) {
+    for (;;) {
+        const uint8_t n = button.clicks();
+        if (n >= kClicksCal) {
+            const float cru = battery.readNodeMillivolts() * kDivider / kMsPerSec;
+            if (cru < kUsbThresholdV) // no usb o no fica no rail de 5V, calibrar ali estraga tudo
+                saveCalibration(battery.calibrateTo(kFullCellV));
+        } else if (n > 0) {
+            break;
+        }
         proximity.tick();
         led.heartbeat();
         const uint32_t now = millis();
@@ -224,7 +254,7 @@ void batteryDiag() {
                 .minMv = int(lo),
                 .maxMv = int(hi),
                 .cru = cru,
-                .cal = cru * kBatteryCal,
+                .cal = cru * battery.calibration(),
                 .level = gfx::clamp01(cru / kFullCellV),
                 .usb = cru > kUsbThresholdV,
             };
@@ -340,6 +370,7 @@ void setup() {
     button.begin();
     randomSeed(micros());
     display.begin();
+    loadCalibration();
     battery.begin();
     proximity.identify();
 

@@ -48,7 +48,8 @@ bool runWifiMode(mrm::Ssd1306Display& display, mrm::Battery& battery, mrm::Butto
         portal.handle();
         const uint32_t now = millis();
         if (now - last >= kUiFrameMs) {
-            battery.update();
+            // Sem battery.update(): o AP puxa 100mA e a leitura sairia afundada. Mostra o
+            // ultimo valor lido em idle, antes do radio subir.
             const sinal::PortalModel model{
                 .apSsid = apSsid.c_str(),
                 .pin = hasCode ? code.c_str() : "----",
