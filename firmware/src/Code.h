@@ -2,10 +2,10 @@
 
 #include <Arduino.h>
 
-// Pairing code to 20-bit UID, shared by Proximity and Bundle. The web builder mirrors it.
+// Codigo de pareamento pra UID de 20 bits, compartilhado por Proximity e Bundle. O web builder espelha.
 namespace pin::code {
 
-// 32 symbols, no 0/1/I/O so a spoken or handwritten code is unambiguous.
+// 32 simbolos, sem 0/1/I/O pra um codigo falado ou escrito a mao nao ser ambiguo.
 constexpr char kAlphabet[] = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
 inline int index(char c) {
@@ -15,7 +15,7 @@ inline int index(char c) {
     return -1;
 }
 
-// A usable code is exactly 4 alphabet symbols. Anything else is not a pairing target.
+// Um codigo usavel tem exatamente 4 simbolos do alfabeto. Qualquer outra coisa nao e alvo de pareamento.
 inline bool valid(const String& s) {
     if (s.length() != 4)
         return false;
@@ -25,7 +25,7 @@ inline bool valid(const String& s) {
     return true;
 }
 
-// 4-char code -> 20-bit UID, or 0 (the "unconfigured" wire sentinel) if not a valid code.
+// codigo de 4 chars -> UID de 20 bits, ou 0 (o sentinela de "nao configurado" no fio) se invalido.
 inline uint32_t decode(const String& s) {
     if (!valid(s))
         return 0;
@@ -35,7 +35,7 @@ inline uint32_t decode(const String& s) {
     return u & 0xFFFFF;
 }
 
-// 20-bit UID -> 4-char code plus NUL.
+// UID de 20 bits -> codigo de 4 chars mais NUL.
 inline void encode(uint32_t u, char out[5]) {
     for (int i = 0; i < 4; ++i)
         out[i] = kAlphabet[(u >> (5 * (3 - i))) & 0x1F];

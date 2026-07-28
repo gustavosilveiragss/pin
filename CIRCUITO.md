@@ -93,6 +93,8 @@ O firmware so le a bateria em idle (80MHz, radio desligado). Durante video, enco
 
 Carregando com a chave ligada o numero mente: o TP4056 segura o terminal em 4.2V e o broche mostra cheio mesmo com a celula pela metade. Sem fio no pino CHRG nao da pra detectar isso, entao a regra e: leia a porcentagem fora do carregador.
 
+A porcentagem so aparece no menu wifi (2 cliques). A curva e de tensao em repouso (OCV) de LiPo a 25C, com 0% em 3.30V, que e onde o LDO da placa larga o 3V3. Mesmo calibrada, no meio da descarga a curva e quase plana (3.75-3.85V cobre de 25% a 55%), entao trate o numero como faixa, nao como medida: cheio e vazio ele acerta, o meio e chute educado.
+
 ## Consumo e autonomia
 
 Bateria de 1500mAh entrega ~1400mAh uteis (celula real abaixo do nominal, corte em 3.0V). Valores medios estimados, ainda sem bancada.

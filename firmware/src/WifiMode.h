@@ -8,18 +8,18 @@
 
 namespace pin {
 
-// What the portal (double-click) screen shows. `myCode` is this pin's proximity code: it is
-// appended to the AP name (broche-XXXX) and served at GET /codigo so a phone can read it
-// without the OLED (matters for the button-less build). Pass "" to omit. friend_/friendCode
-// report whether a paired pin was in range, snapshotted before the radio hands to the SoftAP.
+// O que a tela do portal (duplo clique) mostra. `myCode` e o codigo de proximidade deste pin: ele
+// e adicionado no nome do AP (broche-XXXX) e servido em GET /codigo pra um celular ler sem o OLED
+// (importa no build sem botao). Passe "" pra omitir. friend_/friendCode reportam se um pin
+// pareado estava no alcance, congelado antes do radio passar pro SoftAP.
 struct PortalInfo {
     const char* myCode;
     sinal::FriendState friend_;
     const char* friendCode;
 };
 
-// Runs the on-demand upload portal with the SINAL portal screen. Returns true if a valid
-// bundle was received.
+// Roda o portal de upload on-demand com a tela de portal do SINAL. Retorna true se um bundle
+// valido foi recebido.
 bool runWifiMode(mrm::Ssd1306Display& display, mrm::Battery& battery, mrm::Button& button, const PortalInfo& info);
 
 } // namespace pin

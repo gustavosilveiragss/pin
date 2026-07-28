@@ -7,6 +7,9 @@
 namespace pin {
 namespace sinal {
 
+// redraw ~25 fps, o unico ajuste de bateria da UI
+constexpr uint32_t kUiFrameMs = 40;
+
 enum class FriendState : uint8_t { Near, Far, Error, None };
 enum class Overlay : uint8_t { Fila, Encontro };
 
@@ -27,7 +30,6 @@ struct EncounterModel {
 struct InterruptModel {
     Overlay kind;
     const char* friendCode;
-    uint8_t battery;
     uint8_t track;
     uint8_t trackCount;
 };
@@ -38,12 +40,12 @@ struct DiagModel {
     int maxMv;
     float cru;
     float cal;
-    float level; // 0..1 gauge
+    float level; // 0..1 medidor
     bool usb;
 };
 
-// Time t is milliseconds since the screen was entered. Every screen clears except interrupcao,
-// which composites over the frozen content frame. None call show(); the caller does.
+// O tempo t e em milissegundos desde que a tela foi aberta. Toda tela limpa menos a interrupcao,
+// que compoe sobre o frame de conteudo congelado. Nenhuma chama show(), quem chama faz.
 void splash(SSD1306Wire& oled, uint32_t t);
 void bootFail(SSD1306Wire& oled, uint32_t t);
 void semConteudo(SSD1306Wire& oled, uint32_t t);

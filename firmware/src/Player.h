@@ -7,10 +7,10 @@
 
 namespace pin {
 
-// Streams one heatshrink + RLE encoded blob straight to the OLED, frame by frame.
+// Faz streaming de um blob heatshrink + RLE direto pro OLED, frame a frame.
 class Player {
 public:
-    using AbortFn = std::function<bool()>; // polled per frame, true stops playback
+    using AbortFn = std::function<bool()>; // consultado por frame, true para o playback
 
     explicit Player(mrm::Ssd1306Display& display)
         : display_(display) {}

@@ -7,10 +7,9 @@
 namespace pin {
 
 namespace {
-constexpr uint32_t kUiFrameMs = 40;
-constexpr uint32_t kWifiStartMs = 1000; // wifi-iniciando animation before the radio blocks
-constexpr uint32_t kSettleMs = 50;      // let the radio settle before the last redraw
-constexpr const char* kApBase = "broche"; // the AP is always broche-<code>
+constexpr uint32_t kWifiStartMs = 1000; // animacao de wifi iniciando antes do radio bloquear
+constexpr uint32_t kSettleMs = 50;      // deixa o radio assentar antes do ultimo redraw
+constexpr const char* kApBase = "broche"; // o AP e sempre broche-<code>
 constexpr const char* kConfigHost = "pin.marmota.dev.br";
 constexpr const char* kUploadHost = "192.168.4.1";
 } // namespace
@@ -18,8 +17,8 @@ constexpr const char* kUploadHost = "192.168.4.1";
 bool runWifiMode(mrm::Ssd1306Display& display, mrm::Battery& battery, mrm::Button& button, const PortalInfo& info) {
     const bool hasCode = info.myCode && info.myCode[0];
     const String code = hasCode ? String(info.myCode) : String();
-    // The code rides in the AP name so a phone reads it from the wifi list (broche-<code>);
-    // "broche-XXXX" is 11 bytes, well under the 32-byte SSID cap.
+    // O codigo viaja no nome do AP pra um celular ler da lista de wifi (broche-<code>).
+    // "broche-XXXX" tem 11 bytes, bem abaixo do cap de 32 bytes do SSID.
     const String apSsid = hasCode ? String(kApBase) + "-" + code : String(kApBase);
 
     mrm::WifiPortal portal({.ssid = apSsid.c_str(), .destPath = Bundle::kPath, .page = kUploadPage});
@@ -31,7 +30,7 @@ bool runWifiMode(mrm::Ssd1306Display& display, mrm::Battery& battery, mrm::Butto
     display.reinit();
     for (uint32_t start = millis(), last = 0; millis() - start < kWifiStartMs;) {
         const uint32_t now = millis();
-        if (now - last >= kUiFrameMs) {
+        if (now - last >= sinal::kUiFrameMs) {
             sinal::wifiStarting(display.raw(), now - start);
             display.show();
             last = now;
@@ -39,15 +38,15 @@ bool runWifiMode(mrm::Ssd1306Display& display, mrm::Battery& battery, mrm::Butto
         delay(10);
     }
     portal.begin();
-    display.reinit(); // the radio powering up disturbs the OLED charge pump
+    display.reinit(); // o radio ligando perturba a bomba de carga do OLED
 
-    button.reset(); // drop the burst that opened wifi so a fresh click exits
+    button.reset(); // descarta a rajada que abriu o wifi pra um clique novo sair
     const uint32_t start = millis();
     uint32_t last = 0;
     while (!portal.done()) {
         portal.handle();
         const uint32_t now = millis();
-        if (now - last >= kUiFrameMs) {
+        if (now - last >= sinal::kUiFrameMs) {
             // Sem battery.update(): o AP puxa 100mA e a leitura sairia afundada. Mostra o
             // ultimo valor lido em idle, antes do radio subir.
             const sinal::PortalModel model{

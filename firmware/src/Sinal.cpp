@@ -27,7 +27,7 @@ void dashBox(SSD1306Wire& oled, int16_t x, int16_t y, int16_t w, int16_t h) {
     }
 }
 
-// A scattered field of start points, hashed from the index so the coalesce is stable per frame.
+// Um campo espalhado de pontos iniciais, com hash do indice pra coalescencia ser estavel por frame.
 void coalesceDots(SSD1306Wire& oled, int16_t cx, int16_t cy, float a) {
     for (uint8_t i = 0; i < 52; ++i) {
         const uint32_t h = (i + 1) * 2654435761u;
@@ -37,8 +37,8 @@ void coalesceDots(SSD1306Wire& oled, int16_t cx, int16_t cy, float a) {
     }
 }
 
-// gfx::ping draws every positive radius; the screens want the preview window 2 < r < maxR so the
-// opening rings do not flash a sub-pixel dot a frame before they read as a ring.
+// gfx::ping desenha todo raio positivo. As telas querem a janela 2 < r < maxR pra os aneis de
+// abertura nao piscarem um ponto sub-pixel um frame antes de virarem anel.
 void pingSpec(SSD1306Wire& oled, int16_t cx, int16_t cy, const int16_t* radii, uint8_t count, int16_t maxR = 44) {
     int16_t keep[4];
     uint8_t n = 0;
@@ -107,7 +107,7 @@ void semConteudo(SSD1306Wire& oled, uint32_t t) {
 }
 
 void interrupcao(SSD1306Wire& oled, uint32_t t, const InterruptModel& m) {
-    const uint32_t dur = 1030; // enter, hold and exit land inside the caller's overlay window
+    const uint32_t dur = 1030; // entrada, hold e saida cabem na janela de overlay do caller
     const float p = float(t % dur) / dur;
     float vis = 0;
     if (p < 0.16f)
@@ -137,7 +137,6 @@ void interrupcao(SSD1306Wire& oled, uint32_t t, const InterruptModel& m) {
             else
                 oled.drawCircle(x, 58, 1);
         }
-        gfx::drawIcon(oled, 110, 54, icons::Battery);
     }
 }
 
@@ -186,7 +185,7 @@ void portal(SSD1306Wire& oled, uint32_t t, const PortalModel& m) {
     oled.setColor(BLACK);
     gfx::drawIcon(oled, 2, 1, icons::Wifi);
     text(oled, 16, 1, m.apSsid);
-    gfx::drawIcon(oled, 84, 2, icons::Battery); // left of x90 so a 3-digit "100%" clears the icon
+    gfx::drawIcon(oled, 84, 2, icons::Battery); // a esquerda de x90 pra um "100%" de 3 digitos nao cobrir o icone
     text(oled, 126, 1, String(m.battery) + "%", TEXT_ALIGN_RIGHT);
 
     oled.setColor(WHITE);
@@ -234,8 +233,8 @@ void diag(SSD1306Wire& oled, uint32_t t, const DiagModel& m) {
     for (int16_t i = 0; i < seg; ++i)
         oled.fillRect(11, 48 - i * 6, 14, 4);
     text(oled, 40, 12, String(m.nodeMv) + "mV");
-    // BAT/USB badge shares the mV row, right side: the 3-letter label needs ~21px, more than the
-    // old 14px footer pill, and here it stops covering the cru/cal readout below.
+    // Badge BAT/USB na linha do mV, lado direito: o rotulo de 3 letras precisa de ~21px, e
+    // aqui ele para de cobrir o cru/cal de baixo.
     oled.fillRect(100, 11, 24, 11);
     oled.setColor(BLACK);
     text(oled, 112, 12, m.usb ? "USB" : "BAT", TEXT_ALIGN_CENTER);
@@ -244,8 +243,8 @@ void diag(SSD1306Wire& oled, uint32_t t, const DiagModel& m) {
     oled.fillRect(40, 28, 1, 5);
     oled.fillRect(123, 28, 1, 5);
     oled.fillRect(40 + lroundf(84 * m.level), 27, 2, 7);
-    // Just the numbers under the track end caps (left cap = min, right cap = max). The "min "/
-    // "max " words would overrun the 84px track width on the fixed metrics and garble on the panel.
+    // So os numeros sob as pontas da trilha (ponta esquerda = min, direita = max). As palavras
+    // "min " / "max " estourariam a largura de 84px da trilha nas metricas fixas e embolariam no painel.
     text(oled, 40, 36, String(m.minMv));
     text(oled, 124, 36, String(m.maxMv), TEXT_ALIGN_RIGHT);
     text(oled, 40, 48, String("cru ") + String(m.cru, 2) + " cal " + String(m.cal, 2));

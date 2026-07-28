@@ -10,11 +10,11 @@ namespace {
 
 constexpr uint8_t kMagic[] = {'P', 'I', 'N', '1'};
 constexpr uint8_t kVersion1 = 1;
-constexpr uint8_t kVersion2 = 2; // adds the proximity target block + item flags
-constexpr size_t kHeaderSize = 8; // magic(4) version(1) mode(1) count(1) flags(1)
+constexpr uint8_t kVersion2 = 2; // adiciona o bloco de target de proximidade + flags de item
+constexpr size_t kHeaderSize = 8; // magic(4) versao(1) modo(1) count(1) flags(1)
 constexpr size_t kSsidLenSize = 1;
 constexpr size_t kTargetLenSize = 1;
-constexpr size_t kIndexEntrySize = 8; // type(1) holdSec(1) itemFlags(1) reserved(1) length(4)
+constexpr size_t kIndexEntrySize = 8; // type(1) holdSec(1) itemFlags(1) reservado(1) length(4)
 constexpr uint8_t kModeMask = 0x03;
 
 constexpr size_t kHeaderVersion = 4;
@@ -22,7 +22,7 @@ constexpr size_t kHeaderMode = 5;
 constexpr size_t kHeaderCount = 6;
 constexpr size_t kEntryType = 0;
 constexpr size_t kEntryHold = 1;
-constexpr size_t kEntryFlags = 2; // was reserved, bit0 = in-range-only
+constexpr size_t kEntryFlags = 2; // bit0 = so-in-range
 constexpr size_t kEntryLength = 4;
 
 uint32_t readU32(const uint8_t* p) {
@@ -59,8 +59,8 @@ bool Bundle::load(const char* path) {
         return false;
     }
 
-    // Legacy WiFi-name block: ignored now (the AP is always broche-<code>). Skip it; the
-    // length-prefixed slot stays in the format and the current tool writes 0.
+    // Bloco de nome WiFi legado, ignorado (o AP e sempre broche-<code>). Pula ele. O slot com
+    // prefixo de tamanho fica no formato e o tool escreve 0.
     uint8_t ssidLen = 0;
     file.read(&ssidLen, kSsidLenSize);
     uint8_t ssidSkip[256];
@@ -85,7 +85,7 @@ bool Bundle::load(const char* path) {
         target[targetLen] = 0;
         target_ = target;
         if (!code::valid(target_))
-            target_ = ""; // unusable code, proximity stays off and the item plays in the fila
+            target_ = ""; // codigo inutil, a proximidade fica off e o item toca na fila
         targetBlock = kTargetLenSize + targetLen;
     }
 

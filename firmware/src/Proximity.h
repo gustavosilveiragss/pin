@@ -6,22 +6,22 @@ namespace pin {
 
 class Bundle;
 
-// ESP-NOW proximity handshake. Each configured pin broadcasts a tiny beacon carrying its own
-// code and the friend's code, and shows its in-range video only on a MUTUAL match (a beacon
-// whose sender is my target and whose target is me). The radio comes up once and is
-// duty-cycled by ESP-NOW connectionless power save, never by toggling WiFi on and off, so the
-// OLED charge pump is disturbed only at enable. TX beacons are pumped from tick(), RX lands in
-// a WiFi-task callback that records the timestamp of the last mutual match.
+// Handshake de proximidade por ESP-NOW. Cada pin configurado transmite um beacon pequeno com o
+// proprio codigo e o codigo do amigo, e mostra seu video in-range so num match MUTUO (um beacon
+// cujo sender e o meu target e cujo target sou eu). O radio sobe uma vez e e duty-cycle pelo
+// power save connectionless do ESP-NOW, nunca ligando e desligando o WiFi, entao a bomba de carga
+// do OLED so e perturbada no enable. Os beacons de TX saem do tick(), o RX cai num callback da
+// task WiFi que guarda o timestamp do ultimo match mutuo.
 class Proximity {
 public:
-    void identify();                      // derive myCode from the chip id (call once, early)
-    bool configure(const Bundle& bundle); // (re)start the radio, true if the RF was powered up
-    void stop();                          // tear the radio down (frees it for the upload portal)
-    void tick();                          // pump: beacon TX + arrive/leave state machine
+    void identify();                      // deriva o myCode do id do chip (chama uma vez, cedo)
+    bool configure(const Bundle& bundle); // (re)inicia o radio, true se o RF foi ligado
+    void stop();                          // desliga o radio (libera pro portal de upload)
+    void tick();                          // pump: TX do beacon + maquina de chegada/saida
 
     bool active() const { return active_; }
-    bool present() const { return present_; }      // mutual friend in range (debounced)
-    const char* myCode() const { return myCode_; } // 4 chars + NUL, valid after identify()
+    bool present() const { return present_; }      // amigo mutuo no alcance (com debounce)
+    const char* myCode() const { return myCode_; } // 4 chars + NUL, valido depois de identify()
 
 private:
     void setDuty(uint16_t windowMs, uint16_t intervalMs);
@@ -42,8 +42,8 @@ private:
     uint32_t lastTxMs_ = 0;
     uint8_t seq_ = 0;
 
-    // Written only by the recv callback (WiFi task), read in tick(). A 32-bit aligned
-    // load/store is atomic on the RISC-V C3, and there is a single writer, so no lock.
+    // Escrito so pelo callback de recv (task WiFi), lido no tick(). Um load/store alinhado de
+    // 32 bits e atomico no RISC-V C3, e ha um unico escritor, entao nao precisa de lock.
     static volatile uint32_t s_lastMatchMs;
     static volatile uint32_t s_matchCount;
     static uint32_t s_myUid;

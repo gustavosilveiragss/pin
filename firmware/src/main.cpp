@@ -14,40 +14,40 @@ namespace sinal = pin::sinal;
 
 namespace {
 
-constexpr uint8_t kButtonPin = 9; // boot button, also the external case button
+constexpr uint8_t kButtonPin = 9; // botao de boot, tambem o botao externo do case
 constexpr uint8_t kLedPin = 8;
-constexpr uint8_t kBatteryPin = 3; // battery divider ADC node
+constexpr uint8_t kBatteryPin = 3; // no do divisor de bateria no ADC
 constexpr uint32_t kDecodeClockMhz = 160;
 constexpr uint32_t kIdleClockMhz = 80;
 constexpr uint32_t kIdlePollMs = 50;
-constexpr uint32_t kActivePollMs = 12; // dense poll while the radio blocks light sleep
+constexpr uint32_t kActivePollMs = 12; // poll denso enquanto o radio bloqueia o light sleep
 constexpr uint32_t kMsPerSec = 1000;
 
-// 64 of 255: readable indoors, panel draw roughly halved. Raise it for daylight.
+// 64 de 255: legivel em ambiente fechado, consumo do painel quase pela metade. Sobe pra luz do dia.
 constexpr uint8_t kOledContrast = 64;
 
-constexpr uint32_t kUiFrameMs = 40;      // ~25 fps redraw, the single UI battery knob
-constexpr uint32_t kDiagFrameMs = 250;   // the diag readout is near static, sample it lazily
-constexpr uint32_t kBootFailMs = 500;    // crack redraw cadence on the dead filesystem screen
-constexpr uint32_t kSplashMs = 1800;     // boot animation, one full screen cycle
-constexpr uint32_t kReceivedMs = 1000;   // upload-received stamp, one full cycle (matches recebido)
-constexpr uint32_t kEncounterMs = 2200;  // friend-arrival transition, one full cycle
-constexpr uint32_t kInterruptMs = 700;   // overlay band lifetime, covers enter, hold and exit
-constexpr size_t kBufferBytes = 1024;    // 128x64 / 8, the OLED pixel buffer
+constexpr uint32_t kDiagFrameMs = 250;   // o diag e quase estatico, amostra devagar
+constexpr uint32_t kBootFailMs = 500;    // cadencia da rachadura na tela de filesystem morto
+constexpr uint32_t kSplashMs = 1800;     // animacao de boot, um ciclo inteiro de tela
+constexpr uint32_t kReceivedMs = 1000;   // selo de recebido, um ciclo inteiro
+constexpr uint32_t kEncounterMs = 2200;  // transicao de chegada do amigo, um ciclo inteiro
+constexpr uint32_t kInterruptMs = 700;   // vida da faixa de overlay, cobre entrada, hold e saida
+constexpr size_t kBufferBytes = 1024;    // 128x64 / 8, o buffer de pixels do OLED
 
-constexpr uint8_t kClicksWifi = 2; // wifi menu (code, status, upload)
-constexpr uint8_t kClicksDiag = 5; // battery diagnostic
+constexpr uint8_t kClicksWifi = 2; // menu wifi (codigo, status, upload)
+constexpr uint8_t kClicksDiag = 5; // diagnostico de bateria
 constexpr uint8_t kClicksCal = 2;  // dentro do diag: grava a calibracao
 
 // Fallback trim, sobrescrito pela calibracao por unidade gravada na NVS (diag, 2 cliques).
-// Assume o cap de 100nF no no do divisor; sem ele a leitura cai ~5% (use 1.05).
+// Assume o cap de 100nF no no do divisor. Sem ele a leitura cai ~5% (use 1.05).
 constexpr float kBatteryCal = 1.0f;
 constexpr const char* kNvsNamespace = "pin";
 constexpr const char* kNvsCalKey = "batcal";
 constexpr float kDivider = 2.0f;        // 100k/100k
-constexpr float kUsbThresholdV = 4.30f; // above a real cell means the reading is the usb rail
+constexpr float kUsbThresholdV = 4.30f; // acima de uma celula real, a leitura e o rail do usb
 constexpr float kFullCellV = 4.2f;
-constexpr uint8_t kBatterySamples = 32; // trimmed inside Battery, so noise never reaches the badge
+constexpr uint8_t kBatterySamples = 32; // aparado dentro do Battery, o ruido nunca chega no badge
+constexpr uint32_t kRelaxMs = 30000;    // espera a celula voltar da carga antes de ler de novo
 
 Ssd1306Display display({.contrast = kOledContrast});
 Battery battery({.adcPin = kBatteryPin,
@@ -79,7 +79,8 @@ void saveCalibration(float cal) {
 bool g_next = false;
 bool g_enterWifi = false;
 bool g_enterDiag = false;
-bool g_friendShown = false; // true while the in-range handshake video is on screen
+uint32_t g_lastLoadMs = 0;
+bool g_friendShown = false; // true enquanto o video de handshake in-range esta na tela
 int g_current = 0;
 
 void pollNav() {
@@ -94,8 +95,8 @@ void pollNav() {
         g_next = true;
 }
 
-// True when the on-screen state no longer matches presence, so playback must switch. Gated on
-// active() so a stale g_friendShown can't force a permanent edge when the radio is off.
+// True quando a tela nao bate mais com a presenca, entao o playback precisa trocar. Preso ao
+// active() pra um g_friendShown velho nao forcar uma borda permanente com o radio desligado.
 bool friendEdge() {
     return proximity.active() && proximity.present() != g_friendShown;
 }
@@ -110,8 +111,8 @@ bool shouldStop() {
     return gesturePending() || friendEdge();
 }
 
-// With the radio up, real light sleep would stop the WiFi modem and miss RX windows, so we
-// busy-delay instead. Non-proximity pins keep the light-sleep idle unchanged.
+// Com o radio ligado, o light sleep de verdade pararia o modem WiFi e perderia janelas de RX,
+// entao usa busy-delay. Nos pins sem proximidade o idle com light sleep fica igual.
 void idleWait() {
     if (proximity.active())
         delay(kActivePollMs);
@@ -123,13 +124,15 @@ void pump() {
     pollNav();
     proximity.tick();
     led.heartbeat();
-    // So mede em estado conhecido: 80MHz, radio off, sem decode. Com radio ou video a celula
-    // afunda alguns mV e a leitura cairia em degrau que a histerese nunca deixa voltar.
-    if (!proximity.active())
+    // So mede em estado conhecido: 80MHz, radio off, sem decode, e depois da celula relaxar. Sob
+    // carga a leitura sai afundada num degrau que a histerese de subida nunca deixa voltar.
+    if (proximity.active())
+        g_lastLoadMs = millis();
+    else if (millis() - g_lastLoadMs >= kRelaxMs)
         battery.update();
 }
 
-// Static hold: no chrome to animate (held fila image, in-range image), keeps light sleep.
+// Hold estatico: sem chrome pra animar (imagem da fila em hold, imagem in-range), mantem light sleep.
 template <typename Keep>
 void hold(Keep keep) {
     power::cpuClock(kIdleClockMhz);
@@ -139,10 +142,10 @@ void hold(Keep keep) {
     }
 }
 
-// Animated SINAL screen that reacts to input: redraw at kUiFrameMs, pump nav every pass so
-// beacon cadence and clicks are unaffected by the frame gate. idleWait() light-sleeps between
-// frames when the radio is off (so the unbounded empty screen still deep-idles), busy-delays
-// when it is up.
+// Tela SINAL animada que reage a input: redraw a cada kUiFrameMs, pump da nav em todo passo pra
+// cadencia do beacon e cliques nao serem afetados pelo gate de frame. idleWait() faz light sleep
+// entre frames com o radio off (a tela vazia sem limite ainda entra em deep idle), busy-delay
+// quando o radio esta ligado.
 template <typename Draw, typename Keep>
 void animate(Draw draw, Keep keep) {
     power::cpuClock(kIdleClockMhz);
@@ -151,7 +154,7 @@ void animate(Draw draw, Keep keep) {
     while (keep()) {
         pump();
         const uint32_t now = millis();
-        if (now - last >= kUiFrameMs) {
+        if (now - last >= sinal::kUiFrameMs) {
             draw(now - start);
             display.show();
             last = now;
@@ -160,7 +163,7 @@ void animate(Draw draw, Keep keep) {
     }
 }
 
-// Transient animation for a fixed span, no navigation (splash, received stamp).
+// Animacao transiente por um tempo fixo, sem navegacao (splash, selo de recebido).
 template <typename Draw>
 void playFor(Draw draw, uint32_t ms) {
     power::cpuClock(kIdleClockMhz);
@@ -169,7 +172,7 @@ void playFor(Draw draw, uint32_t ms) {
     while (millis() - start < ms) {
         led.heartbeat();
         const uint32_t now = millis();
-        if (now - last >= kUiFrameMs) {
+        if (now - last >= sinal::kUiFrameMs) {
             draw(now - start);
             display.show();
             last = now;
@@ -184,16 +187,15 @@ void holdImage(uint8_t seconds) {
     hold([&] { return millis() - start < ms && !gesturePending() && !friendEdge(); });
 }
 
-// An in-range image is one frame, so loop() draws it once and then holds here rather than
-// replaying it every pass (which would blank and redraw at full clock).
+// Uma imagem in-range e um frame so, entao loop() desenha uma vez e segura aqui em vez de
+// redesenhar todo passo (o que apagaria e redesenharia no clock cheio).
 void holdWhilePresent() {
     hold([] { return proximity.present() && !gesturePending(); });
 }
 
-// A transient band over the frozen content frame on a click. The buffer is snapshotted once so
-// each frame recomposites the band over the same still image, then playback advances.
+// Uma faixa transiente sobre o frame de conteudo congelado num clique. O buffer e copiado uma vez
+// pra cada frame recompor a faixa sobre a mesma imagem parada, depois o playback avanca.
 void overlayFila() {
-    battery.update();
     uint8_t bg[kBufferBytes];
     uint8_t* buf = display.raw().buffer;
     memcpy(bg, buf, kBufferBytes);
@@ -201,19 +203,18 @@ void overlayFila() {
     const sinal::InterruptModel model{
         .kind = sinal::Overlay::Fila,
         .friendCode = nullptr,
-        .battery = battery.percent(),
         .track = uint8_t(g_current % max<int>(1, tracks)),
         .trackCount = tracks,
     };
     power::cpuClock(kIdleClockMhz);
     const uint32_t start = millis();
     uint32_t last = 0;
-    // pump() keeps the button state machine live so a fresh click during the band ends it early
-    // instead of being swallowed (it would otherwise poll nothing for the whole span).
+    // pump() mantem a maquina de estado do botao viva pra um clique novo durante a faixa
+    // encerrar cedo em vez de ser engolido (senao nao pollava nada o tempo todo da faixa).
     while (millis() - start < kInterruptMs && !gesturePending()) {
         pump();
         const uint32_t now = millis();
-        if (now - last >= kUiFrameMs) {
+        if (now - last >= sinal::kUiFrameMs) {
             memcpy(buf, bg, kBufferBytes);
             sinal::interrupcao(display.raw(), now - start, model);
             display.show();
@@ -227,7 +228,7 @@ void overlayFila() {
 // repouso (fora do carregador), 2 cliques gravam cal = 4.20 / cru na NVS: e o que tira o erro de
 // resistor e de ganho de ADC desta unidade. Um clique sai.
 void batteryDiag() {
-    button.reset(); // drop the burst that opened the diag so a click can exit
+    button.reset(); // descarta a rajada que abriu o diag pra um clique poder sair
     power::cpuClock(kIdleClockMhz);
     float lo = 9999.0f;
     float hi = 0.0f;
@@ -245,10 +246,10 @@ void batteryDiag() {
         led.heartbeat();
         const uint32_t now = millis();
         if (now - last >= kDiagFrameMs) {
-            const float node = battery.readNodeMillivolts(); // same trimmed read the badge uses
+            const float node = battery.readNodeMillivolts(); // mesma leitura aparada do badge
             lo = min(lo, node);
             hi = max(hi, node);
-            const float cru = node * kDivider / kMsPerSec; // cell, uncalibrated
+            const float cru = node * kDivider / kMsPerSec; // celula, sem calibrar
             const sinal::DiagModel model{
                 .nodeMv = int(node),
                 .minMv = int(lo),
@@ -267,8 +268,8 @@ void batteryDiag() {
     g_enterDiag = false;
 }
 
-// The one handshake item is withheld from the fila only while the radio is up. Otherwise it
-// just plays like any other item, so it is never silently unreachable.
+// O unico item de handshake so sai da fila enquanto o radio esta ligado. Fora isso ele toca como
+// qualquer outro item, entao nunca fica silenciosamente inalcancavel.
 bool filaSkip(int index) {
     return proximity.active() && index == bundle.inRangeIndex();
 }
@@ -309,36 +310,36 @@ void advanceByMode() {
     }
 }
 
-// After playback, act on a pending event. Priority: menu, then friend arrival, then next.
-// A single-click advance flashes the overlay band first. Returns true to restart loop().
+// Depois do playback, age no evento pendente. Prioridade: menu, chegada do amigo, next.
+// Um clique unico de avanco pisca a faixa de overlay antes. Retorna true pra reiniciar loop().
 bool interrupted() {
     if (g_enterWifi || g_enterDiag)
         return true;
     if (proximity.present())
         return true;
     if (g_next) {
-        g_next = false; // consume the advancing click before the band, so it does not self-abort
+        g_next = false; // consome o clique de avanco antes da faixa, pra ela nao se abortar
         overlayFila();
         if (g_enterWifi || g_enterDiag)
-            return true; // a menu gesture cut the band short: dispatch it, do not advance the fila
+            return true; // um gesto de menu cortou a faixa: despacha ele, nao avanca a fila
         advanceSequential();
         return true;
     }
     return false;
 }
 
-// Adopt /show.pin: load it, restart the radio for its target, rewind the fila.
+// Adota o /show.pin: carrega, reinicia o radio pro alvo dele, rebobina a fila.
 void reloadBundle() {
     bundle.load();
     if (proximity.configure(bundle))
-        display.reinit(); // the radio coming up disturbs the OLED charge pump
+        display.reinit(); // o radio subindo perturba a bomba de carga do OLED
     g_current = firstFilaItem();
 }
 
 void enterWifi() {
     g_enterWifi = false;
     led.on();
-    // Snapshot the link before the radio hands to the SoftAP, so the menu can report it.
+    // Congela o link antes do radio passar pro SoftAP, pra o menu poder reportar.
     sinal::FriendState friendState;
     if (proximity.active())
         friendState = proximity.present() ? sinal::FriendState::Near : sinal::FriendState::Far;
@@ -347,13 +348,14 @@ void enterWifi() {
     else
         friendState = sinal::FriendState::None;
     const String friendCode = bundle.target();
-    proximity.stop(); // the SoftAP needs the radio in AP mode
+    proximity.stop(); // o SoftAP precisa do radio em modo AP
     const pin::PortalInfo info{
         .myCode = proximity.myCode(),
         .friend_ = friendState,
         .friendCode = friendCode.c_str(),
     };
     const bool received = pin::runWifiMode(display, battery, button, info);
+    g_lastLoadMs = millis();
     led.off();
     if (received)
         playFor([](uint32_t t) { sinal::recebido(display.raw(), t); }, kReceivedMs);
@@ -378,10 +380,10 @@ void setup() {
     button.reset();
 
     if (!fsMount()) {
-        // A broken filesystem is fatal and not "no content", so halt here with the crack tile
-        // on screen instead of letting loop() invite a wifi upload that can never persist.
-        // A dead device may sit here for hours, so light-sleep between the slow crack redraws
-        // instead of busy-spinning. The crack only steps twice a second.
+        // Um filesystem quebrado e fatal e nao "sem conteudo", entao para aqui com a tela da
+        // rachadura em vez de deixar loop() convidar um upload wifi que nunca vai persistir.
+        // Um aparelho morto pode ficar aqui por horas, entao faz light sleep entre os redraws
+        // lentos da rachadura em vez de busy-spin. A rachadura so anda duas vezes por segundo.
         power::cpuClock(kIdleClockMhz);
         uint32_t last = 0;
         const uint32_t start = millis();
@@ -401,7 +403,7 @@ void setup() {
 
 void loop() {
     if (g_enterDiag) {
-        batteryDiag(); // returns on a click
+        batteryDiag(); // volta num clique
         return;
     }
     if (g_enterWifi) {
@@ -418,15 +420,15 @@ void loop() {
         return;
     }
 
-    // A live handshake takes over with the in-range item. g_current stays put so the fila
-    // resumes where it was on leave. The arrival plays the encontro transition once.
+    // Um handshake ao vivo assume com o item in-range. g_current fica parado pra a fila voltar
+    // de onde estava na saida. A chegada toca a transicao de encontro uma vez.
     if (proximity.present() && bundle.proximityEnabled()) {
         if (!g_friendShown) {
             const uint32_t start = millis();
             animate([](uint32_t t) { sinal::encontroEnter(display.raw(), t, {bundle.target().c_str()}); },
                     [&] { return millis() - start < kEncounterMs && proximity.present() && !gesturePending(); });
-            // Bail only for a menu gesture or the friend leaving. A plain advance click falls
-            // through and is consumed below (as HEAD did), so it can never livelock the branch.
+            // So sai por gesto de menu ou pelo amigo indo embora. Um clique simples de avanco cai
+            // e e consumido abaixo, entao nunca trava o ramo em livelock.
             if (g_enterWifi || g_enterDiag || !proximity.present())
                 return;
         }
@@ -436,7 +438,8 @@ void loop() {
         button.reset();
         power::cpuClock(kDecodeClockMhz);
         player.play(bundle.path(), item.offset, item.length, shouldStop);
-        // A video replays on loop re-entry. An image is one frame, so hold it instead of redrawing.
+        g_lastLoadMs = millis();
+        // Um video repete ao reentrar no loop. Uma imagem e um frame so, entao segura em vez de redesenhar.
         if (item.type == pin::ItemType::Image && !gesturePending() && proximity.present())
             holdWhilePresent();
         return;
@@ -445,10 +448,11 @@ void loop() {
 
     const pin::Item& item = bundle.item(g_current);
     g_next = false;
-    button.reset(); // a completed click from the previous item must not advance this one
+    button.reset(); // um clique completo do item anterior nao pode avancar este
 
     power::cpuClock(kDecodeClockMhz);
     player.play(bundle.path(), item.offset, item.length, shouldStop);
+    g_lastLoadMs = millis();
 
     if (interrupted())
         return;

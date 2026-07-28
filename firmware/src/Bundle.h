@@ -5,42 +5,42 @@
 namespace pin {
 
 enum class PlayMode : uint8_t { Loop = 0,
-                                Shuffle = 2 }; // the only modes the web tool emits
+                                Shuffle = 2 }; // os unicos modos que o web tool emite
 enum class ItemType : uint8_t { Video = 0,
                                 Image = 1 };
 
 struct Item {
     ItemType type = ItemType::Video;
     uint8_t holdSec = 0;
-    uint8_t flags = 0; // bit0 = in-range-only (the proximity/handshake video)
+    uint8_t flags = 0; // bit0 = so-in-range (o video de proximidade/handshake)
     uint32_t offset = 0;
     uint32_t length = 0;
     bool inRangeOnly() const { return flags & 0x01; }
 };
 
-// A .pin bundle is one file the web tool builds and the pin just plays. Byte layout:
+// Um bundle .pin e um arquivo que o web tool monta e o pin so toca. Layout de bytes:
 //
-//   offset      size       field
+//   offset      size       campo
 //   0           4          magic 'P' 'I' 'N' '1'
-//   4           1          version (1, or 2 with the proximity block)
-//   5           1          mode (0 loop, 2 shuffle)
-//   6           1          count (items, 1..32)
-//   7           1          flags (reserved, 0)
-//   8           1          ssidLen (legacy WiFi-name length, ignored; the current tool writes 0)
-//   9           ssidLen    ssid (legacy, ignored; the AP name is always broche-<code>)
-//   (v2 only)   1          targetLen (0..8, the paired friend's short code)
-//   (v2 only)   targetLen  target (ASCII base32 code the friend read off their pin)
-//   ...         count*8    index, one 8-byte entry per item
-//   ...         ...        payload, the item blobs back to back
+//   4           1          versao (1, ou 2 com o bloco de proximidade)
+//   5           1          modo (0 loop, 2 shuffle)
+//   6           1          count (itens, 1..32)
+//   7           1          flags (reservado, 0)
+//   8           1          ssidLen (tamanho do nome WiFi legado, ignorado, o tool escreve 0)
+//   9           ssidLen    ssid (legado, ignorado, o nome do AP e sempre broche-<code>)
+//   (so v2)     1          targetLen (0..8, o codigo curto do amigo pareado)
+//   (so v2)     targetLen  target (codigo base32 ASCII que o amigo leu no pin dele)
+//   ...         count*8    indice, uma entrada de 8 bytes por item
+//   ...         ...        payload, os blobs dos itens em sequencia
 //
-// Index entry (8 bytes): type(1) | holdSec(1) | itemFlags(1) | reserved(1) | length(u32 LE)
-//   type 0 = video (a stream of frames), 1 = image (one frame held holdSec seconds).
-//   itemFlags bit0 = in-range-only: the dedicated handshake video, excluded from the
-//   normal fila and shown only while a mutual proximity handshake is live (v1 = 0).
+// Entrada do indice (8 bytes): type(1) | holdSec(1) | itemFlags(1) | reservado(1) | length(u32 LE)
+//   type 0 = video (um fluxo de frames), 1 = imagem (um frame segurado holdSec segundos).
+//   itemFlags bit0 = so-in-range: o video dedicado de handshake, excluido da fila normal e
+//   mostrado so enquanto um handshake mutuo de proximidade esta ativo (v1 = 0).
 //
-// Each blob is heatshrink(RLE(frames)). The Player decompresses and draws it. Item
-// offsets are not stored: they are the running sum of the lengths after the index, and
-// the bundle is accepted only if that sum lands exactly on the file size.
+// Cada blob e heatshrink(RLE(frames)). O Player descomprime e desenha. Os offsets dos itens nao
+// sao guardados: sao a soma corrente dos tamanhos depois do indice, e o bundle so e aceito se
+// essa soma cai exatamente no tamanho do arquivo.
 class Bundle {
 public:
     static constexpr int kMaxItems = 32;
@@ -48,7 +48,7 @@ public:
     static constexpr const char* kPath = "/show.pin";
 
     bool load(const char* path = kPath);
-    static bool validate(const char* path); // full structural check before promoting an upload
+    static bool validate(const char* path); // check estrutural completo antes de promover um upload
 
     bool empty() const { return count_ == 0; }
     int count() const { return count_; }
@@ -56,11 +56,10 @@ public:
     const char* path() const { return kPath; }
     const Item& item(int index) const { return items_[index]; }
 
-    // Proximity (in-range handshake video). Enabled only when the bundle carries a
-    // valid friend code, one item is flagged in-range, and at least one item still
-    // plays in the normal fila. When disabled every item plays normally (v1 behavior).
-    // Whether the flagged item is actually withheld from the fila is decided at runtime
-    // by the caller (it depends on the radio being up), not here.
+    // Proximidade (video de handshake in-range). Ligada so quando o bundle carrega um codigo de
+    // amigo valido, um item esta marcado in-range, e pelo menos um item ainda toca na fila normal.
+    // Quando desligada todo item toca normal (comportamento v1). Se o item marcado e mesmo tirado
+    // da fila e decidido em runtime pelo caller (depende do radio estar ligado), nao aqui.
     const String& target() const { return target_; }
     bool proximityEnabled() const { return target_.length() == 4 && inRangeIndex_ >= 0 && playable_ >= 1; }
     int inRangeIndex() const { return inRangeIndex_; }

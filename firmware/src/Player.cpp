@@ -14,14 +14,14 @@ constexpr size_t kRleBuf = 4096;
 constexpr size_t kReadBuf = 2048;
 static_assert(kReadBuf <= HEATSHRINK_STATIC_INPUT_BUFFER_SIZE, "read chunk must fit the decoder input buffer");
 
-constexpr uint8_t kEscBlack = 0x55; // marks a run of black
-constexpr uint8_t kEscWhite = 0xAA; // marks a run of white
+constexpr uint8_t kEscBlack = 0x55; // marca uma sequencia de preto
+constexpr uint8_t kEscWhite = 0xAA; // marca uma sequencia de branco
 constexpr uint8_t kBlack = 0x00;
 constexpr uint8_t kWhite = 0xFF;
-constexpr uint8_t kRunSecondByte = 0x80; // high bit: another length byte follows
+constexpr uint8_t kRunSecondByte = 0x80; // bit alto: vem outro byte de tamanho
 constexpr uint8_t kRunLowMask = 0x7F;
 constexpr uint8_t kRunHighShift = 7;
-constexpr uint8_t kMsb = 0x80; // pixels are packed most significant bit first
+constexpr uint8_t kMsb = 0x80; // pixels empacotados com o bit mais significativo primeiro
 constexpr int kBitsPerByte = 8;
 constexpr int kWidth = 128;
 constexpr int kHeight = 64;
@@ -92,12 +92,12 @@ void Player::play(const char* path, uint32_t offset, uint32_t length, const Abor
     file.close();
 }
 
-// Fed one RLE byte at a time (the heatshrink output). Grammar:
-//   - a plain byte is 8 packed pixels (MSB first), drawn as-is.
-//   - 0x55 / 0xAA open a run of black / white, and the next byte(s) give the count:
-//       0            emit the 0x55 / 0xAA byte literally once.
-//       1..127       that many all-black (0x00) / all-white (0xFF) bytes.
-//       high bit set low 7 bits here, then one more byte for bits 7..14 (up to 32767).
+// Alimentado um byte RLE por vez (a saida do heatshrink). Gramatica:
+//   - um byte simples e 8 pixels empacotados (MSB primeiro), desenhado como esta.
+//   - 0x55 / 0xAA abrem uma sequencia de preto / branco, e o(s) proximo(s) byte(s) dao a conta:
+//       0            emite o byte 0x55 / 0xAA literalmente uma vez.
+//       1..127       essa quantidade de bytes todo-preto (0x00) / todo-branco (0xFF).
+//       bit alto ligado: 7 bits baixos aqui, depois mais um byte pros bits 7..14 (ate 32767).
 void Player::decodeByte(uint8_t value, const AbortFn& abort) {
     if (dupByte_ == -1) {
         if (value == kEscBlack || value == kEscWhite)
