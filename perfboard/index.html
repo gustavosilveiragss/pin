@@ -40,7 +40,7 @@
   <div class="card">
     <h2>Esquemática</h2>
     <svg id="sch" role="img" aria-label="Esquemática do pin"></svg>
-    <p class="hint">Símbolos IEC. Trilho de GND embaixo, todo retorno desce nele. SW1 é SPDT e usa só o comum e um lateral.</p>
+    <p class="hint">Símbolos ANSI. Trilho de GND embaixo, todo retorno desce nele. SW1 é SPDT e usa só o comum e um lateral.</p>
   </div>
 
   <div class="card">
@@ -265,7 +265,7 @@
     return s;
   }
 
-  // ---------- esquemática (símbolos IEC) ----------
+  // ---------- esquemática (símbolos ANSI) ----------
   const W=(pts)=>`<polyline class="w" points="${pts.map(p=>p.join(',')).join(' ')}"/>`;
   const dot=(x,y)=>`<circle class="jn" cx="${x}" cy="${y}" r="3.4"/>`;
   const lbl=(x,y,t,a)=>`<text class="sl" x="${x}" y="${y}" text-anchor="${a||'middle'}">${t}</text>`;
@@ -278,18 +278,19 @@
          + `<line class="w" x1="${x-8}" y1="${y+17}" x2="${x+8}" y2="${y+17}"/>`
          + `<line class="w" x1="${x-3}" y1="${y+22}" x2="${x+3}" y2="${y+22}"/>`;
   }
-  // resistor vertical: terminal 12, corpo 40, terminal 12 (total 64 a partir de y-12)
+  // resistor vertical em zigue-zague: terminal 12, corpo 40, terminal 12 (64 a partir de y-12)
   function resV(x,y,r,v){
+    const zz=[[x,y],[x-8,y+5],[x+8,y+12],[x-8,y+19],[x+8,y+26],[x-8,y+33],[x,y+40]];
     return `<line class="w" x1="${x}" y1="${y-12}" x2="${x}" y2="${y}"/>`
-         + `<rect class="sym" x="${x-9}" y="${y}" width="18" height="40" rx="2"/>`
+         + `<polyline class="sym" points="${zz.map(p=>p.join(',')).join(' ')}"/>`
          + `<line class="w" x1="${x}" y1="${y+40}" x2="${x}" y2="${y+52}"/>`
-         + ref(x+16,y+16,r,'start') + lbl(x+16,y+30,v,'start');
+         + ref(x+20,y+16,r,'start') + lbl(x+20,y+30,v,'start');
   }
   // bateria vertical, + em cima (placa longa)
   function batV(x,y){
     return `<line class="w" x1="${x}" y1="${y}" x2="${x}" y2="${y+18}"/>`
          + `<line class="sym" x1="${x-15}" y1="${y+18}" x2="${x+15}" y2="${y+18}"/>`
-         + `<line class="sym" x1="${x-8}" y1="${y+28}" x2="${x+8}" y2="${y+28}"/>`
+         + `<line class="sym" x1="${x-8}" y1="${y+28}" x2="${x+8}" y2="${y+28}" stroke-width="4"/>`
          + `<line class="w" x1="${x}" y1="${y+28}" x2="${x}" y2="${y+46}"/>`
          + `<text class="sp" x="${x+19}" y="${y+16}">+</text>`
          + ref(x-22,y+21,'BT1','end') + lbl(x-22,y+35,'LiPo 3.7V','end');
@@ -310,7 +311,9 @@
   function push(x,y){
     return `<line class="w" x1="${x}" y1="${y}" x2="${x+16}" y2="${y}"/>`
          + `<line class="w" x1="${x+44}" y1="${y}" x2="${x+60}" y2="${y}"/>`
-         + `<line class="sym" x1="${x+10}" y1="${y-13}" x2="${x+50}" y2="${y-13}"/>`
+         + `<line class="w" x1="${x+16}" y1="${y}" x2="${x+16}" y2="${y-8}"/>`
+         + `<line class="w" x1="${x+44}" y1="${y}" x2="${x+44}" y2="${y-8}"/>`
+         + `<line class="sym" x1="${x+8}" y1="${y-13}" x2="${x+52}" y2="${y-13}"/>`
          + `<line class="sym" x1="${x+30}" y1="${y-13}" x2="${x+30}" y2="${y-24}"/>`
          + `<line class="sym" x1="${x+20}" y1="${y-24}" x2="${x+40}" y2="${y-24}"/>`
          + ref(x+30,y-52,'SW2') + lbl(x+30,y-38,'momentâneo');
