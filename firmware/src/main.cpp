@@ -22,6 +22,7 @@ constexpr uint32_t kIdleClockMhz = 80;
 constexpr uint32_t kIdlePollMs = 50;
 constexpr uint32_t kActivePollMs = 12; // poll denso enquanto o radio bloqueia o light sleep
 constexpr uint32_t kMsPerSec = 1000;
+constexpr float kMvPerV = 1000.0f;
 
 // 64 de 255: legivel em ambiente fechado, consumo do painel quase pela metade. Sobe pra luz do dia.
 constexpr uint8_t kOledContrast = 64;
@@ -39,8 +40,8 @@ constexpr uint8_t kClicksDiag = 5; // diagnostico de bateria
 constexpr uint8_t kClicksCal = 2;  // dentro do diag: grava a calibracao
 
 // Fallback trim, sobrescrito pela calibracao por unidade gravada na NVS (diag, 2 cliques).
-// Assume o cap de 100nF no no do divisor. Sem ele a leitura cai ~5% (use 1.05).
-constexpr float kBatteryCal = 1.0f;
+// O divisor de 100k tem impedancia alta pro sample-and-hold do ADC e a leitura sai ~5% baixa.
+constexpr float kBatteryCal = 1.05f;
 constexpr const char* kNvsNamespace = "pin";
 constexpr const char* kNvsCalKey = "batcal";
 constexpr float kDivider = 2.0f;        // 100k/100k
@@ -236,8 +237,11 @@ void batteryDiag() {
     for (;;) {
         const uint8_t n = button.clicks();
         if (n >= kClicksCal) {
-            const float cru = battery.readNodeMillivolts() * kDivider / kMsPerSec;
-            if (cru < kUsbThresholdV) // no usb o no fica no rail de 5V, calibrar ali estraga tudo
+            // O limiar vale pra leitura ja calibrada, igual ao Battery: comparar a crua deixaria o
+            // rail de 5V passar por celula e gravar uma calibracao envenenada.
+            const float cal =
+                battery.readNodeMillivolts() * kDivider / kMvPerV * battery.calibration();
+            if (cal < kUsbThresholdV) // no usb o no fica no rail de 5V, calibrar ali estraga tudo
                 saveCalibration(battery.calibrateTo(kFullCellV));
         } else if (n > 0) {
             break;
@@ -249,15 +253,16 @@ void batteryDiag() {
             const float node = battery.readNodeMillivolts(); // mesma leitura aparada do badge
             lo = min(lo, node);
             hi = max(hi, node);
-            const float cru = node * kDivider / kMsPerSec; // celula, sem calibrar
+            const float cru = node * kDivider / kMvPerV; // celula, sem calibrar
+            const float cal = cru * battery.calibration();
             const sinal::DiagModel model{
                 .nodeMv = int(node),
                 .minMv = int(lo),
                 .maxMv = int(hi),
                 .cru = cru,
-                .cal = cru * battery.calibration(),
-                .level = gfx::clamp01(cru / kFullCellV),
-                .usb = cru > kUsbThresholdV,
+                .cal = cal,
+                .level = gfx::clamp01(cal / kFullCellV),
+                .usb = cal > kUsbThresholdV,
             };
             sinal::diag(display.raw(), now, model);
             display.show();

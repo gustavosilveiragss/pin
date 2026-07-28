@@ -13,7 +13,6 @@ Broche ESP32-C3 com OLED, bateria LiPo e carga USB-C. Esquema visual em [`perfbo
 | Chave SS-12D00 | liga e desliga |
 | Botao momentario | na case, ligado no boot (IO9) |
 | 2x resistor 100k | divisor pra ler a bateria |
-| 1x capacitor 100nF | do no do divisor pro GND, junto do IO3 |
 | Alfinete de broche | fixacao |
 
 ## Pinos do ESP32-C3
@@ -69,13 +68,11 @@ Botao momentario, em paralelo com o boot da placa, levado pra fora na case. Um c
 | 5V | R1 de 100k |
 | R1 e R2 | no comum |
 | no comum | IO3 |
-| no comum | capacitor 100nF |
-| capacitor 100nF | GND |
 | R2 de 100k | GND |
 
 O no fica na metade da tensao da bateria, entao o IO3 le Vbat dividido por 2. O IO3 e do ADC1, que funciona com o WiFi ligado.
 
-O divisor de 100k tem impedancia alta (50k no no) pro sample and hold do ADC, o que puxa a leitura pra baixo. O capacitor de 100nF do no pro GND segura a carga entre as conversoes e mata o ruido do radio, entao ele nao e opcional: o firmware assume que ele esta la (`kBatteryCal = 1.0`). Se montar sem o cap, a leitura sai ~5% baixa e a calibracao tem que compensar isso.
+O divisor de 100k tem impedancia alta (50k no no) pro sample and hold do ADC, entao a leitura sai ~5% baixa. O firmware ja parte desse valor (`kBatteryCal = 1.05`) e o ruido do radio cai na media aparada de 32 amostras. A calibracao por unidade e o que acerta o resto.
 
 ### Calibracao da bateria (por unidade)
 
