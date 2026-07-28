@@ -25,15 +25,15 @@ screw_head = 3.8;    // countersink
 wall   = 2.0;
 floor_th = 2.0;
 lid_th = 2.4;
-inner_w = 43;                 // X (+/-21.5)   (+2: alivio de montagem)
-inner_l = 48;                 // Y (+/-24)     (+2: alivio de montagem)
-inner_h = 26;                 // z 0..26       (+2: alivio de montagem)
+inner_w = 45;                 // X (+/-22.5)
+inner_l = 62;                 // Y (+/-31)
+inner_h = 28;                 // z 0..28
 rout   = 6;                   // raio externo (pebble); r6 contem os postes de canto
 rin    = rout - wall;         // raio interno
 cham_e = 0.8;                 // chanfro arestas inferiores (anti elephant-foot + costura)
-outer_w = inner_w + 2*wall;   // 47
-outer_l = inner_l + 2*wall;   // 52
-// externo 47 x 52 x 30.4
+outer_w = inner_w + 2*wall;   // 49
+outer_l = inner_l + 2*wall;   // 66
+// externo 49 x 66 x 32.4
 
 // ---------- PERFBOARD 10x12 (ESP + R1 + R2), centrada ----------
 pb_pitch = 2.54;
@@ -43,8 +43,8 @@ function bx(c) = (c - 5.5)*pb_pitch;    // col1=-11.43 .. col10=+11.43
 function by(r) = (6.5 - r)*pb_pitch;    // lin1=+13.97 .. lin12=-13.97
 mount = [[1,8],[10,8],[1,12],[10,12]];  // furos de fixacao livres
 
-// ---------- BATERIA LiPo 503035 (chao, centrada) ----------
-bat_t=5.5; bat_w=31; bat_l=36;          // CHUTE. Agora MEZANINO no TOPO (apoia nas abas z17), presa pela tampa
+// ---------- BATERIA LiPo 103450 1500mAh (mezanino no topo, apoia nas abas z17, presa pela tampa) ----------
+bat_t=10; bat_w=34; bat_l=50;           // vao livre entre postes: X 36.6, Y 53.6, Z 11 (28-17)
 
 // ---------- POSTES da placa (do CHAO ate a placa) + prateleira da bateria ----------
 bpost_d=4;                    // 4 postes da placa (nos furos mount), z0..pb_z -> suportes na BASE
@@ -55,7 +55,7 @@ tp_z0=11.0;                    // PCB mezanino (mais baixo: a placa foi pro chao
 // TP4056 real (pesquisado): PCB 26x18, 6 pads Ø1.54 (retangulo 22.9x14.3). O user
 // PARAFUSA por 2 pads que NAO usa (+/- de entrada, perto do USB-C): fura esses 2
 // pads pra 2.0mm -> M2 auto-atarraxa nos postes. Confirma tp_boss_x/y com a placa.
-tp_boss_x=[-3.2, 11.2]; tp_boss_y=-21; tp_boss_d=5;  // 2 postes nos 2 pads +/- (espac. 14.4, ja casou c/ a placa)
+tp_boss_x=[-3.2, 11.2]; tp_boss_y=-(inner_l/2-3); tp_boss_d=5;  // 2 postes nos 2 pads +/- (espac. 14.4), colados na parede -Y
 // USB-C real: centro do furo = 2.75mm acima do FUNDO do PCB (PCB ~1.2 + centro do vao 1.58).
 // Antes usava +1.6 -> furo ~1.15mm BAIXO: a porta ficava ACIMA e, ao empurrar a placa p/ encaixar,
 // os 2 pads de parafuso desalinhavam (porta e pads sao rigidos no PCB). Furo E postes saem do MESMO
@@ -71,13 +71,13 @@ btn_d=4.3; btn_y=0; btn_z=8;    // tactile 6x6 do kit: plunger Ø3.5. Painel red
 btn_sock_in=6.4; btn_sock_out=8.4; btn_sock_d=4.5;  // socket 6x6 por dentro (encaixa/segura o corpo solto)
 
 // ---------- POSTES DE CANTO (chao -> tampa, M2) ----------
-post_d=5; post_cx=19.8; post_cy=22.3;   // 1.7 da parede; folga bateria 503035 (+/-15.25,+/-18.5): ~2.0mm lados, ~1.3mm topo (antes 0.8)
+post_d=5; post_cx=inner_w/2-1.7; post_cy=inner_l/2-1.7;   // vao entre postes = inner - 8.4, folga ~1.3mm/lado na bateria
 
 // ---------- TAMPA LISA + passa-cabo no rimo ----------
 cable_notch_w=12; cable_notch_h=3.2;   // buraco do cabo entre tampa e caixa (rimo +Y)
 
 // ---------- LOGO no fundo externo ----------
-logo_txt="marmota.dev.br"; logo_size=3.0; logo_deep=1.0; logo_y=-18;   // size 3.0 (cabe c/ margem) ; 1.0 = gravado fundo
+logo_txt="marmota.dev.br"; logo_size=3.0; logo_deep=1.0; logo_y=-25;   // size 3.0 (cabe c/ margem) ; 1.0 = gravado fundo
 
 show_refs=false;
 

@@ -22,6 +22,9 @@ constexpr uint32_t kIdlePollMs = 50;
 constexpr uint32_t kActivePollMs = 12; // dense poll while the radio blocks light sleep
 constexpr uint32_t kMsPerSec = 1000;
 
+// 64 of 255: readable indoors, panel draw roughly halved. Raise it for daylight.
+constexpr uint8_t kOledContrast = 64;
+
 constexpr uint32_t kUiFrameMs = 40;      // ~25 fps redraw, the single UI battery knob
 constexpr uint32_t kDiagFrameMs = 250;   // the diag readout is near static, sample it lazily
 constexpr uint32_t kBootFailMs = 500;    // crack redraw cadence on the dead filesystem screen
@@ -40,10 +43,14 @@ constexpr float kBatteryCal = 1.05f;
 constexpr float kDivider = 2.0f;        // 100k/100k
 constexpr float kUsbThresholdV = 4.30f; // above a real cell means the reading is the usb rail
 constexpr float kFullCellV = 4.2f;
-constexpr uint8_t kDiagSamples = 64;
+constexpr uint8_t kBatterySamples = 32; // trimmed inside Battery, so noise never reaches the badge
 
-Ssd1306Display display;
-Battery battery({.calibration = kBatteryCal});
+Ssd1306Display display({.contrast = kOledContrast});
+Battery battery({.adcPin = kBatteryPin,
+                 .divider = kDivider,
+                 .samples = kBatterySamples,
+                 .calibration = kBatteryCal,
+                 .usbThresholdV = kUsbThresholdV});
 Button button(kButtonPin);
 Led led({.pin = kLedPin});
 pin::Bundle bundle;
@@ -97,6 +104,7 @@ void pump() {
     pollNav();
     proximity.tick();
     led.heartbeat();
+    battery.update(); // self-gated on its interval, so this is a millis compare on most passes
 }
 
 // Static hold: no chrome to animate (held fila image, in-range image), keeps light sleep.
@@ -207,10 +215,7 @@ void batteryDiag() {
         led.heartbeat();
         const uint32_t now = millis();
         if (now - last >= kDiagFrameMs) {
-            uint32_t sum = 0;
-            for (uint8_t i = 0; i < kDiagSamples; ++i)
-                sum += analogReadMilliVolts(kBatteryPin);
-            const float node = float(sum) / kDiagSamples;
+            const float node = battery.readNodeMillivolts(); // same trimmed read the badge uses
             lo = min(lo, node);
             hi = max(hi, node);
             const float cru = node * kDivider / kMsPerSec; // cell, uncalibrated

@@ -224,7 +224,7 @@
     const bx=442, by=288;
     s+=`<rect class="ext" x="${bx}" y="${by}" width="160" height="54" rx="8"/>`;
     s+=`<text class="exttag" x="${bx+80}" y="${by+21}" text-anchor="middle">LiPo 3.7V</text>`;
-    s+=`<text class="exts" x="${bx+80}" y="${by+39}" text-anchor="middle">500mAh + PCM, no fundo</text>`;
+    s+=`<text class="exts" x="${bx+80}" y="${by+39}" text-anchor="middle">1500mAh + PCM, no fundo</text>`;
     // bateria -> TP4056 (B+ / B-)
     for(const bp of [[492,'B+'],[552,'B-']]){
       s+=`<path d="${curve(bp[0],by,bp[0],ty+104)}" fill="none" stroke="${NETC.BAT}" stroke-width="3" stroke-linecap="round" stroke-dasharray="${NETDASH.BAT}"/>`;
