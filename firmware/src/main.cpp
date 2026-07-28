@@ -20,7 +20,7 @@ constexpr uint8_t kBatteryPin = 3; // no do divisor de bateria no ADC
 constexpr uint32_t kDecodeClockMhz = 160;
 constexpr uint32_t kIdleClockMhz = 80;
 constexpr uint32_t kIdlePollMs = 50;
-constexpr uint32_t kActivePollMs = 12; // poll denso enquanto o radio bloqueia o light sleep
+constexpr uint32_t kActivePollMs = 8; // poll denso com a janela do radio aberta (TX a cada 20ms)
 constexpr uint32_t kMsPerSec = 1000;
 constexpr float kMvPerV = 1000.0f;
 
@@ -108,17 +108,24 @@ bool gesturePending() {
 
 bool shouldStop() {
     pollNav();
-    proximity.tick();
+    proximity.tick(true); // playback ativo: segura o radio aberto, o decode ja domina o consumo
     return gesturePending() || friendEdge();
 }
 
-// Com o radio ligado, o light sleep de verdade pararia o modem WiFi e derrubaria o RX continuo,
-// entao usa busy-delay. Nos pins sem proximidade o idle com light sleep fica igual.
-void idleWait() {
-    if (proximity.active())
+// Dorme ate o prazo mais proximo: a proxima janela do radio, o teto de frame do caller ou o poll
+// idle. O botao acorda na hora em qualquer caso (wake de GPIO por nivel). Com a janela aberta o
+// loop fica acordado num poll denso pro TX/RX da janela nao perder a vez.
+void idleWait(uint32_t frameMs = 0) {
+    if (proximity.inWindow()) {
         delay(kActivePollMs);
-    else
-        power::lightSleep(kIdlePollMs, kButtonPin);
+        return;
+    }
+    uint32_t ms = proximity.msUntilNextWindow();
+    if (ms == 0)
+        ms = kIdlePollMs; // sem agenda de radio, poll idle
+    if (frameMs > 0 && frameMs < ms)
+        ms = frameMs;
+    power::lightSleep(ms, kButtonPin);
 }
 
 void pump() {
@@ -144,9 +151,8 @@ void hold(Keep keep) {
 }
 
 // Tela SINAL animada que reage a input: redraw a cada kUiFrameMs, pump da nav em todo passo pra
-// cadencia do beacon e cliques nao serem afetados pelo gate de frame. idleWait() faz light sleep
-// entre frames com o radio off (a tela vazia sem limite ainda entra em deep idle), busy-delay
-// quando o radio esta ligado.
+// agenda do radio e cliques nao serem afetados pelo gate de frame. idleWait() com teto de frame
+// dorme em light sleep sem passar nem do proximo frame nem da proxima janela do radio.
 template <typename Draw, typename Keep>
 void animate(Draw draw, Keep keep) {
     power::cpuClock(kIdleClockMhz);
@@ -160,7 +166,7 @@ void animate(Draw draw, Keep keep) {
             display.show();
             last = now;
         }
-        idleWait();
+        idleWait(sinal::kUiFrameMs);
     }
 }
 
@@ -182,7 +188,7 @@ void playFor(Draw draw, uint32_t ms) {
             display.show();
             last = now;
         }
-        idleWait();
+        idleWait(sinal::kUiFrameMs);
     }
 }
 
@@ -225,7 +231,7 @@ void overlayFila() {
             display.show();
             last = now;
         }
-        idleWait();
+        idleWait(sinal::kUiFrameMs);
     }
 }
 
@@ -272,7 +278,7 @@ void batteryDiag() {
             display.show();
             last = now;
         }
-        idleWait();
+        idleWait(kDiagFrameMs);
     }
     g_enterDiag = false;
 }
