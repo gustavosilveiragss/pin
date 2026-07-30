@@ -445,9 +445,10 @@ void loop() {
     // de onde estava na saida. A chegada toca a transicao de encontro uma vez.
     if (proximity.present() && bundle.proximityEnabled()) {
         if (!g_friendShown) {
+            button.reset(); // a rajada em voo do item anterior nao pode virar entrada de menu
             const uint32_t start = millis();
             animate([](uint32_t t) { sinal::encontroEnter(display.raw(), t, {bundle.target().c_str()}); },
-                    [&] { return millis() - start < kEncounterMs && proximity.present() && !gesturePending(); });
+                    [&] { return millis() - start < kEncounterMs && proximity.present() && !g_enterWifi && !g_enterDiag; });
             // So sai por gesto de menu ou pelo amigo indo embora. Um clique simples de avanco cai
             // e e consumido abaixo, entao nunca trava o ramo em livelock.
             if (g_enterWifi || g_enterDiag || !proximity.present())
