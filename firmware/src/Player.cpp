@@ -87,6 +87,10 @@ void Player::play(const char* path, uint32_t offset, uint32_t length, const Abor
             }
             for (size_t i = 0; i < decoded && !aborted_; ++i)
                 decodeByte(rleBuf[i], abort);
+            // O abort() so roda no fim de frame (putPixels). Um blob sem frame (tokens que nao
+            // desenham) deixaria o beacon e o botao sem servico o decode todo, entao chama aqui tambem.
+            if (!aborted_ && abort())
+                aborted_ = true;
         } while (poll == HSDR_POLL_MORE && !aborted_);
     }
     file.close();
