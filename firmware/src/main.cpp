@@ -135,9 +135,9 @@ void idleWait(uint32_t frameMs = 0) {
 void pump() {
     pollNav();
     // So mede em estado conhecido: 80MHz, radio fechado agora, sem decode, celula assentada. Sob
-    // carga a leitura sai afundada num degrau que a histerese de subida nunca deixa voltar. O gate
-    // roda antes do tick() porque o acordar do idle cai na borda da proxima janela, e a medida do
-    // fim do gap precisa sair antes de ela reabrir.
+    // carga a leitura sai afundada e puxa o badge pra baixo, entao mede so no gap. O gate roda
+    // antes do tick() porque o acordar do idle cai na borda da proxima janela, e a medida do fim
+    // do gap precisa sair antes de ela reabrir.
     if (proximity.inWindow())
         g_lastLoadMs = millis();
     else if (millis() - g_lastLoadMs >= kSettleMs)
