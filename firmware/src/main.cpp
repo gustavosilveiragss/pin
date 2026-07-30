@@ -48,7 +48,11 @@ constexpr float kDivider = 2.0f;        // 100k/100k
 constexpr float kUsbThresholdV = 4.30f; // acima de uma celula real, a leitura e o rail do usb
 constexpr float kFullCellV = 4.2f;
 constexpr uint8_t kBatterySamples = 32; // aparado dentro do Battery, o ruido nunca chega no badge
-constexpr uint32_t kRelaxMs = 30000;    // espera a celula voltar da carga antes de ler de novo
+// Espera com o radio fechado antes de medir a bateria. Cabe no gap entre janelas (335ms travado,
+// 255ms no chase), entao a medida sai no fim do gap, com a celula no mais relaxado do ciclo. O
+// update() se limita a cada 5s por dentro, um gap ocasional pulado no chase nao importa. A
+// suavizacao e a histerese ficam dentro do Battery.
+constexpr uint32_t kSettleMs = 250;
 
 Ssd1306Display display({.contrast = kOledContrast});
 Battery battery({.adcPin = kBatteryPin,
@@ -130,14 +134,16 @@ void idleWait(uint32_t frameMs = 0) {
 
 void pump() {
     pollNav();
+    // So mede em estado conhecido: 80MHz, radio fechado agora, sem decode, celula assentada. Sob
+    // carga a leitura sai afundada num degrau que a histerese de subida nunca deixa voltar. O gate
+    // roda antes do tick() porque o acordar do idle cai na borda da proxima janela, e a medida do
+    // fim do gap precisa sair antes de ela reabrir.
+    if (proximity.inWindow())
+        g_lastLoadMs = millis();
+    else if (millis() - g_lastLoadMs >= kSettleMs)
+        battery.update();
     proximity.tick();
     led.heartbeat();
-    // So mede em estado conhecido: 80MHz, radio off, sem decode, e depois da celula relaxar. Sob
-    // carga a leitura sai afundada num degrau que a histerese de subida nunca deixa voltar.
-    if (proximity.active())
-        g_lastLoadMs = millis();
-    else if (millis() - g_lastLoadMs >= kRelaxMs)
-        battery.update();
 }
 
 // Hold estatico: sem chrome pra animar (imagem da fila em hold, imagem in-range), mantem light sleep.
