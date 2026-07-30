@@ -96,6 +96,7 @@ bool Bundle::load(const char* path) {
     }
     mode_ = (header[kHeaderMode] & kModeMask) == uint8_t(PlayMode::Shuffle) ? PlayMode::Shuffle : PlayMode::Loop;
 
+    const uint32_t fileSize = file.size();
     uint32_t offset = kHeaderSize + kSsidLenSize + uint32_t(ssidLen) + uint32_t(targetBlock) + uint32_t(count) * kIndexEntrySize;
     int firstInRange = -1;
     int playable = 0;
@@ -110,6 +111,12 @@ bool Bundle::load(const char* path) {
         items_[i].flags = entry[kEntryFlags];
         items_[i].length = readU32(&entry[kEntryLength]);
         items_[i].offset = offset;
+        // Sem estouro de u32: um length gigante nao pode dar a volta na soma e cair de novo no
+        // tamanho do arquivo, furando o check de integridade.
+        if (offset > fileSize || items_[i].length > fileSize - offset) {
+            file.close();
+            return false;
+        }
         offset += items_[i].length;
         if (items_[i].inRangeOnly()) {
             if (firstInRange < 0)
@@ -119,7 +126,7 @@ bool Bundle::load(const char* path) {
         }
     }
 
-    const bool intact = offset == file.size();
+    const bool intact = offset == fileSize;
     file.close();
     if (!intact)
         return false;
