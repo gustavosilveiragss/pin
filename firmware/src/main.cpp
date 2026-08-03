@@ -117,8 +117,8 @@ bool shouldStop() {
 }
 
 // Dorme ate o prazo mais proximo: a proxima janela do radio, o teto de frame do caller ou o poll
-// idle. O botao acorda na hora em qualquer caso (wake de GPIO por nivel). Com a janela aberta o
-// loop fica acordado num poll denso pro TX/RX da janela nao perder a vez.
+// idle. O botao acorda na hora em qualquer caso (wake de GPIO na borda, aperto e soltura). Com a
+// janela aberta o loop fica acordado num poll denso pro TX/RX da janela nao perder a vez.
 void idleWait(uint32_t frameMs = 0) {
     if (proximity.inWindow()) {
         delay(kActivePollMs);
