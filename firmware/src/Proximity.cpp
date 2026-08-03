@@ -30,12 +30,12 @@ struct __attribute__((packed)) Beacon {
 };
 static_assert(sizeof(Beacon) == 12, "beacon wire size");
 
-// Janela e cadencias do TDMA. A descoberta desliza: o chase abre a cada kChasePeriodMs, o passo
-// (kDiscPeriodMs - kChasePeriodMs = 80ms) varre o periodo do master inteiro sem furo porque fica
-// abaixo do dobro da janela util (2 * (85 - 10 de subida do RF - 20 de espaco de TX - 10 de
-// folga) = 90ms). Pior caso ate cruzar: ceil(420/80) = 6 ciclos de chase, ~2.0s, mais uma janela
-// alinhada pro ack fechar, ~2.5s. Travado, o chase segue a mesma grade do master.
-constexpr uint32_t kWinMs = 85;          // largura da janela de radio aberta
+// Janela e cadencias do TDMA. Na descoberta o radio fica continuo (discovering()), entao capturar
+// o primeiro beacon do amigo nao depende da sobreposicao estreita do slide, cai em ate um periodo
+// do master. O slide (chase abre a cada kChasePeriodMs, passo kDiscPeriodMs - kChasePeriodMs = 80ms)
+// serve so como agenda de fase pro chase travar. Travado, os dois seguem a grade do master e o duty
+// religa por janela pra economia.
+constexpr uint32_t kWinMs = 85;          // largura da janela de radio aberta no regime travado
 constexpr uint32_t kDiscPeriodMs = 420;  // cadencia do master, e do chase travado
 constexpr uint32_t kChasePeriodMs = 340; // cadencia do chase destravado (o passo do varrido)
 constexpr uint32_t kTxGapMs = 20;        // espaco entre beacons dentro da janela aberta
@@ -52,6 +52,10 @@ constexpr uint32_t kFreshMs = 1300;
 // Silencio que derruba a trava do chase, ~6 janelas. Maior que kFreshMs de proposito: num blip
 // curto o present ja caiu mas a agenda segue na grade do master e religa sem varrer.
 constexpr uint32_t kLockLossMs = 2500;
+
+// Rajada de radio continuo na descoberta: cobre o boot e o tempo ouvindo o amigo antes do present
+// fechar. Depois disso, sozinho, cai no duty pra economizar ate ouvir de novo.
+constexpr uint32_t kDiscoverMs = 12000;
 
 uint32_t rd20(const uint8_t* p) {
     return (uint32_t(p[0]) << 16 | uint32_t(p[1]) << 8 | uint32_t(p[2])) & 0xFFFFF;
@@ -90,9 +94,9 @@ void Proximity::identify() {
     identified_ = true;
 }
 
-// Retorna true se o RF foi ligado, entao o caller precisa reiniciar a bomba de carga do OLED,
-// mesmo numa falha de init depois. Retorna false quando a proximidade nunca comecou (feature off
-// ou um alvo inutil) e o radio ficou intocado.
+// Retorna true se o RF foi ligado, entao o caller precisa reiniciar a bomba de carga do OLED.
+// Retorna false quando a proximidade nunca comecou (feature off ou um alvo inutil) e o radio
+// ficou intocado.
 bool Proximity::configure(const Bundle& bundle) {
     stop();
     identify();
@@ -113,39 +117,31 @@ bool Proximity::configure(const Bundle& bundle) {
     present_ = false;
     lastTxMs_ = 0;
 
-    // Daqui o RF esta ligado (bomba de carga do OLED perturbada), entao todo caminho abaixo
-    // retorna true. O driver sobe uma vez aqui, depois o tick() so alterna esp_wifi_start/stop
-    // no ritmo das janelas.
+    // Daqui o RF esta ligado (bomba de carga do OLED perturbada), entao retorna true. O driver
+    // WiFi e o ESP-NOW sobem uma vez aqui e duram a sessao, so o RF cicla por janela pra economia.
+    // setSleep(false) fixa o power save do wrapper em NONE: sem isso o handler de STA_START
+    // reaplica MIN_MODEM a cada esp_wifi_start e o modem-sleep engole o RX do beacon na janela.
+    WiFi.setSleep(false);
     WiFi.mode(WIFI_STA);
-    esp_wifi_set_ps(WIFI_PS_NONE);
-    esp_wifi_set_channel(kChannel, WIFI_SECOND_CHAN_NONE);
-    if (esp_now_init() != ESP_OK) {
-        WiFi.mode(WIFI_OFF);
-        return true;
-    }
-
-    esp_now_peer_info_t peer = {};
-    memset(peer.peer_addr, 0xFF, 6);
-    peer.channel = kChannel;
-    peer.ifidx = WIFI_IF_STA;
-    peer.encrypt = false;
-    if (esp_now_add_peer(&peer) != ESP_OK) { // sem o peer, todo send falha silenciosamente
-        esp_now_deinit();
-        WiFi.mode(WIFI_OFF);
-        return true;
-    }
-    s_active = this;
-    esp_now_register_recv_cb(&Proximity::onRecv);
+    // O C3 sobe o STA sem ligar o RX do ESP-NOW no boot frio: o TX sai (esp_now_send OK) mas o RX
+    // nunca dispara. setTxPower reconfigura o RF e destrava o RX. 8.5dBm cobre a proximidade de
+    // sobra e poupa bateria.
+    WiFi.setTxPower(WIFI_POWER_8_5dBm);
+    s_active = this; // o callback estatico roteia por aqui, setado antes do espNowUp registrar ele
+    espNowUp();
 
     // A comparacao e simetrica, os dois pins concordam nos papeis sem negociar.
     master_ = myUid_ < myTarget_;
     locked_ = false;
 
-    // O RF ja esta de pe, a primeira janela comeca agora. O chase destravado desliza com o
-    // periodo menor, ancora arbitraria (o varrido cobre qualquer defasagem).
+    // Abre a primeira janela agora e mantem o radio continuo pela rajada de descoberta (o
+    // fechamento so volta depois que o par fechar ou a rajada expirar). O chase destravado desliza
+    // com o periodo menor so como agenda de fase, o RX continuo e quem fecha a descoberta.
+    radioUp();
     open_ = true;
     openedAtMs_ = millis();
-    periodMs_ = master_ ? kDiscPeriodMs : kChasePeriodMs;
+    discoverUntilMs_ = openedAtMs_ + kDiscoverMs;
+    periodMs_ = schedulePeriod();
     nextOpenMs_ = openedAtMs_ + periodMs_;
 
     active_ = true;
@@ -154,12 +150,12 @@ bool Proximity::configure(const Bundle& bundle) {
 
 void Proximity::stop() {
     if (active_) {
-        // Com a janela fechada o RF ja esta parado e o teardown do esp_now e so software.
-        esp_now_unregister_recv_cb();
+        if (open_)
+            radioDown(); // fecha a janela corrente (RF)
+        espNowDown();
         if (s_active == this)
             s_active = nullptr;
-        esp_now_deinit();
-        WiFi.mode(WIFI_OFF);
+        WiFi.mode(WIFI_OFF); // desmonta o driver que o configure subiu
     }
     active_ = false;
     present_ = false;
@@ -170,6 +166,15 @@ void Proximity::stop() {
 // porque o callback da task WiFi pode gravar lastRxMs_ um tico a frente do now amostrado no tick.
 bool Proximity::hearsFresh(uint32_t now) const {
     return int32_t(now - lastRxMs_) < int32_t(kFreshMs);
+}
+
+// Fase de descoberta: enquanto o par nao fechou, segura o radio continuo pela rajada do boot e por
+// mais uma rajada a cada beacon ouvido, pra a captura nao depender da sobreposicao estreita do
+// slide. Fechado o present, ou sozinho depois da rajada, cai no duty por janela pra economia.
+bool Proximity::discovering(uint32_t now) const {
+    if (present_)
+        return false;
+    return int32_t(now - discoverUntilMs_) < 0 || int32_t(now - lastRxMs_) < int32_t(kDiscoverMs);
 }
 
 // Ritmo vigente na abertura da janela. Master e chase travado andam na cadencia de descoberta, o
@@ -196,11 +201,30 @@ void Proximity::consumeSync(uint32_t now) {
     nextOpenMs_ = next;
 }
 
-// Religa o RF pra janela. O start pode resetar canal e power save, refixa os dois.
+// Monta o ESP-NOW uma vez por sessao, depois do RF de pe. O RX sobrevive ao stop/start do RF por
+// janela, entao init, callback e peer nao precisam voltar a cada janela.
+void Proximity::espNowUp() {
+    if (esp_now_init() != ESP_OK)
+        return;
+    esp_now_register_recv_cb(&Proximity::onRecv);
+    esp_now_peer_info_t peer = {};
+    memset(peer.peer_addr, 0xFF, 6);
+    peer.channel = kChannel;
+    peer.ifidx = WIFI_IF_STA;
+    peer.encrypt = false;
+    esp_now_add_peer(&peer); // sem o peer so o send falha, o RX independe dele
+}
+
+void Proximity::espNowDown() {
+    esp_now_unregister_recv_cb();
+    esp_now_deinit();
+}
+
+// Liga o RF pra janela. O start reseta o canal, refixa. Na primeira janela o RF ja subiu no
+// configure e o esp_wifi_start e no-op.
 void Proximity::radioUp() {
     esp_wifi_start();
     esp_wifi_set_channel(kChannel, WIFI_SECOND_CHAN_NONE);
-    esp_wifi_set_ps(WIFI_PS_NONE);
 }
 
 void Proximity::radioDown() {
@@ -247,7 +271,9 @@ void Proximity::tick(bool keepOpen) {
             openedAtMs_ = nextOpenMs_; // um stall longo pega a janela corrente, nao a atrasada
             nextOpenMs_ += periodMs_;
         }
-        if (!open_) {
+        // So abre se o now ainda cabe na largura da janela do slot corrente. Um stall que ja passou
+        // de kWinMs pula pro proximo slot, senao subiria e desceria o radio no mesmo tick sem TX.
+        if (!open_ && now - openedAtMs_ < kWinMs) {
             radioUp();
             open_ = true;
         }
@@ -259,7 +285,9 @@ void Proximity::tick(bool keepOpen) {
         openedAtMs_ = now - kWinMs;
     }
 
-    if (open_ && !keepOpen && now - openedAtMs_ >= kWinMs) {
+    // Na descoberta a janela nao fecha: o radio segue continuo pro RX nao perder o beacon numa
+    // sobreposicao curta. Travado ou sozinho depois da rajada, fecha e o duty economiza.
+    if (open_ && !keepOpen && !discovering(now) && now - openedAtMs_ >= kWinMs) {
         radioDown();
         open_ = false;
     }

@@ -41,10 +41,13 @@ public:
 private:
     void consumeSync(uint32_t now);
     uint32_t schedulePeriod() const;
+    void espNowUp();
+    void espNowDown();
     void radioUp();
     void radioDown();
     void sendBeacon(uint32_t now);
     bool hearsFresh(uint32_t now) const;
+    bool discovering(uint32_t now) const;
 
 #if defined(ESP_IDF_VERSION_MAJOR) && ESP_IDF_VERSION_MAJOR >= 5
     static void onRecv(const struct esp_now_recv_info* info, const uint8_t* data, int len);
@@ -69,7 +72,8 @@ private:
     uint32_t nextOpenMs_ = 0;
     uint32_t periodMs_ = 0;
     uint32_t lastTxMs_ = 0;
-    uint32_t syncSeenMs_ = 0; // ultimo lastRxMs_ ja consumido pelo consumeSync
+    uint32_t discoverUntilMs_ = 0; // fim da rajada de radio continuo da descoberta
+    uint32_t syncSeenMs_ = 0;      // ultimo lastRxMs_ ja consumido pelo consumeSync
     uint8_t seq_ = 0;
 
     // Escritos so pelo caminho de RX (task WiFi), lidos no tick() (task main). Um load/store
