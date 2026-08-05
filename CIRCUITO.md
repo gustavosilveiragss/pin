@@ -9,7 +9,7 @@ Broche ESP32-C3 com OLED, bateria LiPo e carga USB-C. Esquema visual em [`perfbo
 | ESP32-C3 SuperMini | placa principal |
 | OLED SSD1306 0.96" I2C | tela 128x64 |
 | TP4056 com protecao DW01 | carga USB-C |
-| LiPo 3.7V 400mAh | com PCB de protecao |
+| LiPo 3.7V 500mAh | com PCB de protecao |
 | Chave SS-12D00 | liga e desliga |
 | Botao momentario | na case, ligado no boot (IO9) |
 | 2x resistor 100k | divisor pra ler a bateria |
